@@ -1498,6 +1498,41 @@ test "Cluster: upgrade: operation=upgrade near trigger-minus-bar" {
     }
 }
 
+// [shopify]
+test "Cluster: upgrade: WAL skip flag is cleared during startup recovery" {
+    const mark = marks.check("startup recovery: cleared WAL skip flag");
+
+    const t = try TestContext.init(.{ .replica_count = 3 });
+    defer t.deinit();
+
+    t.replica(.R_).stop();
+    try t.replica(.R_).open_upgrade(&[_]u8{ 10, 20 });
+    t.run();
+
+    try expectEqual(t.replica(.R_).release(), 20);
+    try expectEqual(t.replica(.R_).storage_superblock_flags(), 0);
+    try mark.expect_hit();
+}
+
+// [shopify]
+test "Cluster: upgrade: R=1 omits view_headers when WAL skip is disabled" {
+    const mark = marks.check("solo upgrade checkpoint omits view_headers");
+
+    const t = try TestContext.init(.{ .replica_count = 1 });
+    defer t.deinit();
+
+    t.replica(.R_).stop();
+    try t.replica(.R0).open_upgrade(&[_]u8{ 10, 20 });
+    t.cluster.replicas[t.replica(.R0).index()].wal_skip_on_upgrade_enabled = false;
+    t.run();
+
+    try expectEqual(t.replica(.R0).health(), .up);
+    try expectEqual(t.replica(.R0).release(), 20);
+    try expectEqual(t.replica(.R0).op_checkpoint(), checkpoint_1);
+    try expectEqual(t.replica(.R0).commit(), checkpoint_1_trigger);
+    try mark.expect_hit();
+}
+
 test "Cluster: upgrade: R=1" {
     // R=1 clusters upgrade even though they don't build a quorum of upgrade targets.
     const t = try TestContext.init(.{ .replica_count = 1 });
@@ -2682,6 +2717,24 @@ const TestReplicas = struct {
             checkpoint_all = replica.op_checkpoint();
         }
         return checkpoint_all.?;
+    }
+
+    // [shopify]
+    pub fn storage_superblock_flags(t: *const TestReplicas) u64 {
+        var flags_all: ?u64 = null;
+        for (t.replicas.const_slice()) |r| {
+            var headers: [constants.superblock_copies]vsr.superblock.SuperBlockHeader = undefined;
+            for (&headers, 0..) |*header, copy| {
+                header.* = t.cluster.storages[r].superblock_header(@intCast(copy)).*;
+            }
+
+            var quorums: vsr.superblock.Quorums = .{};
+            const quorum = quorums.working(&headers, .open) catch unreachable;
+            const flags = quorum.header.flags;
+            assert(flags_all == null or flags_all.? == flags);
+            flags_all = flags;
+        }
+        return flags_all.?;
     }
 
     pub fn storage_checkpoint_release(t: *const TestReplicas) u16 {

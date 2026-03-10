@@ -45,6 +45,7 @@ comptime {
     _ = @import("shopify/release/upstream_merge.zig");
     _ = @import("shopify/stdx.zig");
     _ = @import("shopify/tidy.zig");
+    _ = @import("shopify/wal_skip.zig");
     _ = @import("stack.zig");
     _ = @import("state_machine.zig");
     _ = @import("state_machine_fuzz.zig");
@@ -70,6 +71,7 @@ comptime {
     _ = @import("vsr/marzullo.zig");
     _ = @import("vsr/message_header.zig");
     _ = @import("vsr/multi_batch.zig");
+    _ = @import("vsr/replica.zig");
     _ = @import("vsr/replica_format.zig");
     _ = @import("vsr/replica_test.zig");
     _ = @import("vsr/superblock.zig");

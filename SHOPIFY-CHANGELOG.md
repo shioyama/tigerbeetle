@@ -5,6 +5,20 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ## TigerBeetle (unreleased)
 
+### Patches
+
+- [#97](https://github.com/shop/tigerbeetle/pull/97)
+
+  Skip WAL integrity checks on upgrade when the prior binary performed a clean
+  checkpoint. Gated by `SuperBlockHeader.flag_wal_skip_next_recovery` (bit 63),
+  which the upgrading binary sets in its final checkpoint only when the local
+  WAL has no dirty, faulty, or in-flight writes. The new binary clears the flag
+  durably during startup recovery before returning to service. Cuts post-upgrade
+  unavailability from several seconds to ~500ms. Set
+  `TB_DISABLE_SKIP_WAL_ON_UPGRADE=1` to suppress the flag write
+  when upgrading to a binary that doesn't understand it (e.g. upstream, which
+  asserts `flags == 0`).
+
 ### Tooling
 
 - [#154](https://github.com/shop/tigerbeetle/pull/154)

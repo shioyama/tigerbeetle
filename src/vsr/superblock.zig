@@ -396,6 +396,12 @@ pub const SuperBlockHeader = extern struct {
         }
     };
 
+    // [shopify]
+    /// Set by an upgrade checkpoint to allow the new binary to skip WAL recovery.
+    /// Cleared durably during the new binary's startup recovery before it returns to service.
+    /// Bit 63: fork-claimed bits grow downwards from the high end to leave room for upstream.
+    pub const flag_wal_skip_next_recovery: u64 = 1 << 63;
+
     pub fn calculate_checksum(superblock: *const SuperBlockHeader) u128 {
         comptime assert(meta.fieldIndex(SuperBlockHeader, "checksum") == 0);
         comptime assert(meta.fieldIndex(SuperBlockHeader, "checksum_padding") == 1);
@@ -423,7 +429,9 @@ pub const SuperBlockHeader = extern struct {
 
         assert(superblock.version == SuperBlockVersion);
         assert(superblock.release_format.value > 0);
-        assert(superblock.flags == 0);
+        // [shopify] Only flag_wal_skip_next_recovery is currently defined; all other flag bits
+        // must be zero. (Upstream: `assert(superblock.flags == 0);`.)
+        assert(superblock.flags & ~SuperBlockHeader.flag_wal_skip_next_recovery == 0);
 
         assert(stdx.zeroed(&superblock.reserved));
         assert(stdx.zeroed(&superblock.vsr_state.reserved));
@@ -668,6 +676,10 @@ pub fn SuperBlockType(comptime Storage: type) type {
             /// Used by format() and view_change().
             view_headers: ?vsr.Headers.ViewChangeArray = null,
             repairs: ?Quorums.RepairIterator = null, // Used by open().
+            // [shopify]
+            /// SuperBlockHeader.flags to write. Defaults to 0 (clears any existing flags).
+            /// Set to flag_wal_skip_next_recovery for upgrade checkpoints.
+            flags: u64 = 0,
         };
 
         storage: *Storage,
@@ -885,6 +897,10 @@ pub fn SuperBlockType(comptime Storage: type) type {
             client_sessions_reference: TrailerReference,
             storage_size: u64,
             release: vsr.Release,
+            // [shopify]
+            /// SuperBlockHeader.flags to embed in this checkpoint.
+            /// Set to flag_wal_skip_next_recovery for upgrade checkpoints.
+            flags: u64 = 0,
         };
 
         /// Must update the commit_min and commit_min_checksum.
@@ -981,8 +997,29 @@ pub fn SuperBlockType(comptime Storage: type) type {
                         superblock.staging.view_headers().command,
                         superblock.staging.view_headers().slice,
                     ),
+                .flags = update.flags, // [shopify]
             };
             superblock.log_context(context);
+            superblock.acquire(context);
+        }
+
+        // [shopify] Clear one-shot fork flags without changing VSR state.
+        pub fn update_flags(
+            superblock: *SuperBlock,
+            callback: *const fn (context: *Context) void,
+            context: *Context,
+            flags: u64,
+        ) void {
+            assert(superblock.opened);
+            assert(superblock.staging.flags != flags);
+
+            context.* = .{
+                .superblock = superblock,
+                .callback = callback,
+                .caller = .flags,
+                .vsr_state = superblock.staging.vsr_state,
+                .flags = flags,
+            };
             superblock.acquire(context);
         }
 
@@ -1116,6 +1153,7 @@ pub fn SuperBlockType(comptime Storage: type) type {
                 assert(!context.caller.updates_view_headers());
             }
 
+            superblock.staging.flags = context.flags; // [shopify]
             context.copy = 0;
             superblock.staging.set_checksum();
             superblock.write_header(context);
@@ -1491,6 +1529,7 @@ pub fn SuperBlockType(comptime Storage: type) type {
                 },
                 .checkpoint,
                 .view_change,
+                .flags, // [shopify]
                 => {
                     assert(stdx.equal_bytes(
                         SuperBlockHeader.VSRState,
@@ -1502,6 +1541,7 @@ pub fn SuperBlockType(comptime Storage: type) type {
                         &superblock.working.vsr_state,
                         &context.vsr_state.?,
                     ));
+                    assert(superblock.working.flags == context.flags); // [shopify]
                 },
             }
 
@@ -1559,6 +1599,8 @@ pub const Caller = enum {
     open,
     checkpoint,
     view_change,
+    // [shopify]
+    flags,
 
     /// Beyond formatting and opening of the superblock, which are mutually exclusive of all
     /// other operations, only the following queue combinations are allowed:
@@ -1571,6 +1613,7 @@ pub const Caller = enum {
             .open = Set.init(.{}),
             .checkpoint = Set.init(.{ .view_change = true }),
             .view_change = Set.init(.{ .checkpoint = true }),
+            .flags = Set.init(.{}), // [shopify]
         });
     };
 
@@ -1580,6 +1623,7 @@ pub const Caller = enum {
             .open => unreachable,
             .checkpoint => true,
             .view_change => true,
+            .flags => false, // [shopify]
         };
     }
 };
