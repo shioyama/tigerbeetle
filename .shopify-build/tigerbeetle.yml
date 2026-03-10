@@ -1,0 +1,33 @@
+# Shopify CI pipeline for TigerBeetle.
+
+containers:
+  default:
+    environment: ci
+    privileged: true
+    build:
+      from: ubuntu-24
+      type: ci
+      apt:
+        install:
+          - git
+          - curl
+          - xz-utils
+          - golang-go
+
+steps:
+  - label: ':test_tube: Test'
+    timeout: 10m
+    run:
+      - unshare --user --map-root-user echo "user namespaces work"
+      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
+      - ./zig/download.ps1
+      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" test
+      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" fuzz -- smoke
+      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:c:sample
+  - label: ':go: Go client'
+    timeout: 10m
+    run:
+      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
+      - ./zig/download.ps1
+      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" vortex:build
+      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:go
