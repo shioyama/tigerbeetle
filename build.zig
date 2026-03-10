@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Query = std.Target.Query;
 
-const VoprStateMachine = enum { testing, accounting };
+const VoprStateMachine = enum { testing, accounting, backfill };
 const VoprLog = enum { short, full };
 
 // TigerBeetle binary requires certain CPU feature and supports a closed set of CPUs. Here, we
@@ -485,7 +485,7 @@ fn build_ci(
     }
     if (default or mode == .fuzz) {
         build_ci_step(b, step_ci, .{ "fuzz", "--", "smoke" });
-        inline for (.{ "testing", "accounting" }) |state_machine| {
+        inline for (.{ "testing", "accounting", "backfill" }) |state_machine| {
             build_ci_step(b, step_ci, .{
                 "vopr",
                 "-Dvopr-state-machine=" ++ state_machine,

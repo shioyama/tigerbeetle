@@ -32,6 +32,7 @@ pub const std_options: std.Options = .{
 };
 
 const Fuzzers = .{
+    .backfill = @import("./backfill_fuzz.zig"),
     .ewah = @import("./ewah_fuzz.zig"),
     .lsm_scan = @import("./lsm/scan_fuzz.zig"),
     .lsm_cache_map = @import("./lsm/cache_map_fuzz.zig"),
@@ -120,6 +121,7 @@ fn main_smoke(gpa: std.mem.Allocator) !void {
             .smoke => continue,
             .canary => continue,
 
+            .backfill => 200,
             .lsm_cache_map => 20_000,
             .lsm_forest => 10_000,
             .lsm_manifest_log => 2_000,
