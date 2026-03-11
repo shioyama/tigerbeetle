@@ -16,3 +16,12 @@ Enables piecemeal (non-monotonic) backfills into a live TigerBeetle cluster by r
 Adds four new `TransferFlags` (`enable_history_debit`, `enable_history_credit`, `enable_balance_limit_debit`, `enable_balance_limit_credit`) that upgrade an account's flags as a side effect of posting a pending transfer, enabling live data migration for accounts.
 
 Includes backfill fuzzer (`src/backfill_fuzz.zig`), VOPR backfill workload (`src/testing/backfill_workload.zig`), and expanded state machine tests.
+
+## shopify/zero-downtime-upgrades
+
+**Source:** shopify-playground/tigerbeetle#7
+**Status:** active
+
+Implements a fast WAL recovery path (`recover_fast`) that skips WAL body integrity checks when a replica restarts as part of a version upgrade. On upgrade, the superblock sets `flag_wal_skip_next_open`; on the next open, the journal reads only WAL headers (256 KiB) rather than the full WAL body. Eliminates the WAL recovery I/O cost on upgrade restarts.
+
+`flag_wal_skip_next_open` uses bit 0 of the pre-existing `SuperBlockHeader.flags: u64` field (previously always zero). This does not change the on-disk format. If upstream TigerBeetle assigns meaning to this bit in the future, this patch will need to be updated — though since the flag is only set and cleared during an upgrade transition, adapting to any upstream usage should be straightforward.
