@@ -381,6 +381,7 @@ const (
 	TransferImportedPendingTimestampMustNotRegress            CreateTransferResult = 72
 	TransferImportedPendingTimestampMustPostdateDebitAccount  CreateTransferResult = 73
 	TransferImportedPendingTimestampMustPostdateCreditAccount CreateTransferResult = 74
+	TransferImportedEventTimestampMustBeUnique                CreateTransferResult = 75
 	TransferDebitAccountAlreadyClosed                         CreateTransferResult = 65
 	TransferCreditAccountAlreadyClosed                        CreateTransferResult = 66
 	TransferOverflowsDebitsPending                            CreateTransferResult = 47
@@ -522,6 +523,8 @@ func (i CreateTransferResult) String() string {
 		return "TransferImportedPendingTimestampMustPostdateDebitAccount"
 	case TransferImportedPendingTimestampMustPostdateCreditAccount:
 		return "TransferImportedPendingTimestampMustPostdateCreditAccount"
+	case TransferImportedEventTimestampMustBeUnique:
+		return "TransferImportedEventTimestampMustBeUnique"
 	case TransferDebitAccountAlreadyClosed:
 		return "TransferDebitAccountAlreadyClosed"
 	case TransferCreditAccountAlreadyClosed:

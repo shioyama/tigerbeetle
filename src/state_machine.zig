@@ -1244,6 +1244,14 @@ pub fn StateMachineType(comptime Storage: type) type {
                 if (t.flags.post_pending_transfer or t.flags.void_pending_transfer) {
                     self.forest.grooves.transfers.prefetch_enqueue(t.pending_id);
                 }
+
+                // For non-pending, non-balancing imported transfers, also prefetch by timestamp
+                // to detect collisions with existing transfers sharing the same timestamp.
+                if (t.flags.imported and !t.flags.pending and
+                    !t.flags.balancing_debit and !t.flags.balancing_credit)
+                {
+                    self.forest.grooves.transfers.prefetch_enqueue_by_timestamp(t.timestamp);
+                }
             }
 
             self.forest.grooves.transfers.prefetch(
@@ -3561,11 +3569,20 @@ pub fn StateMachineType(comptime Storage: type) type {
                     if (timestamp <= cr_account.timestamp) {
                         return .imported_event_timestamp_must_postdate_credit_account;
                     }
+                } else {
+                    // For non-pending, non-balancing imports: regression and postdate checks
+                    // relaxed to allow piecemeal backfills into a live cluster. Account timestamps
+                    // may have been advanced by live transfers, but imported transfers with
+                    // historical timestamps should still be accepted.
+                    //
+                    // Timestamp uniqueness is still required: two transfers with different IDs
+                    // but the same timestamp produce duplicate secondary index entries keyed by
+                    // (account_id, timestamp), crashing LSM compaction on dedup. The ID-based
+                    // idempotency check above does not catch this case.
+                    if (self.forest.grooves.transfers.exists(timestamp)) {
+                        return .imported_event_timestamp_must_be_unique;
+                    }
                 }
-                // For non-pending, non-balancing imports: regression and postdate checks
-                // relaxed to allow piecemeal backfills into a live cluster. Account timestamps
-                // may have been advanced by live transfers, but imported transfers with
-                // historical timestamps should still be accepted.
             }
             assert(timestamp > dr_account.timestamp or t.flags.imported);
             assert(timestamp > cr_account.timestamp or t.flags.imported);
@@ -3929,7 +3946,13 @@ pub fn StateMachineType(comptime Storage: type) type {
 
             if (t.flags.imported) {
                 // Regression check relaxed to allow piecemeal backfills into a live cluster.
-                // Timestamps must still be unique (enforced by idempotency checks above).
+                // Timestamp uniqueness is still required: duplicate timestamps produce secondary
+                // index entries with the same composite key (account_id, timestamp), which crashes
+                // LSM compaction. The ID-based idempotency check above does not catch this because
+                // two transfers with different IDs can share the same timestamp.
+                if (self.forest.grooves.transfers.exists(timestamp)) {
+                    return .imported_event_timestamp_must_be_unique;
+                }
             }
             assert(timestamp > dr_account.timestamp or t.flags.imported);
             assert(timestamp > cr_account.timestamp or t.flags.imported);

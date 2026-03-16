@@ -300,6 +300,8 @@ pub const CreateTransferResult = enum(u32) {
     imported_pending_timestamp_must_postdate_debit_account = 73,
     imported_pending_timestamp_must_postdate_credit_account = 74,
 
+    imported_event_timestamp_must_be_unique = 75,
+
     debit_account_already_closed = 65,
     credit_account_already_closed = 66,
 
@@ -317,7 +319,7 @@ pub const CreateTransferResult = enum(u32) {
     deprecated_18 = 18, // amount_must_not_be_zero.
 
     // Update this comment when adding a new value:
-    // Last item: imported_pending_timestamp_must_postdate_credit_account = 74.
+    // Last item: imported_event_timestamp_must_be_unique = 75.
 
     /// Returns `true` if the error code depends on transient system status and retrying
     /// the same transfer with identical request data can produce different outcomes.
@@ -366,6 +368,7 @@ pub const CreateTransferResult = enum(u32) {
             .imported_pending_timestamp_must_not_regress,
             .imported_pending_timestamp_must_postdate_debit_account,
             .imported_pending_timestamp_must_postdate_credit_account,
+            .imported_event_timestamp_must_be_unique,
             .flags_are_mutually_exclusive,
             .debit_account_id_must_not_be_zero,
             .debit_account_id_must_not_be_int_max,
