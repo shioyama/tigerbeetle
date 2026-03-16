@@ -1394,6 +1394,7 @@ test "tidy extensions" {
         .{"src/scripts/cfo_supervisor.sh"},
         .{".github/ci/test_aof.sh"},
         .{".shopify-build/VERSION"},
+        .{".shopify-build/install-zig.sh"},
         .{"src/clients/python/pyproject.toml"},
         .{"src/clients/python/src/tigerbeetle/py.typed"},
     });

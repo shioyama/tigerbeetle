@@ -15,28 +15,60 @@ containers:
           - golang-go
 
 steps:
-  - label: ':test_tube: Test'
+  - label: ':arrow_down: Download Zig'
+    timeout: 5m
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+    run:
+      - sh .shopify-build/install-zig.sh
+
+  - wait
+
+  - label: ':test_tube: Tests'
     timeout: 10m
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
     run:
       - unshare --user --map-root-user echo "user namespaces work"
       - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
-      - ./zig/download.ps1
-      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" test
-      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" fuzz -- smoke
-      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:c:sample
-  - label: ':zig: tb-snapshot — Run tests'
+      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" test
+  - label: ':bug: Fuzz'
+    timeout: 10m
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+    run:
+      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
+      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" fuzz -- smoke
+  - label: ':electric_plug: Client tests'
+    timeout: 10m
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+    run:
+      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
+      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" vortex:build
+      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:go
+      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:c:sample
+  - label: ':camera: tb-snapshot'
     timeout: 15m
     only:
       path_changed:
         - tb-snapshot/**
         - src/**
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
     run:
-      - ./zig/download.ps1
-      - cd tb-snapshot && ../zig/zig build test
-  - label: ':go: Go client'
-    timeout: 10m
-    run:
-      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
-      - ./zig/download.ps1
-      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" vortex:build
-      - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:go
+      - cd tb-snapshot && ../.zig-install/zig build test
