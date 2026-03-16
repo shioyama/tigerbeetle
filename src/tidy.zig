@@ -1393,6 +1393,7 @@ test "tidy extensions" {
         .{"zig/download.win.ps1"},
         .{"src/scripts/cfo_supervisor.sh"},
         .{".github/ci/test_aof.sh"},
+        .{".shopify-build/VERSION"},
         .{"src/clients/python/pyproject.toml"},
         .{"src/clients/python/src/tigerbeetle/py.typed"},
     });
