@@ -34,7 +34,6 @@ steps:
           - zig/download.sh
         upload: false
     run:
-      - unshare --user --map-root-user echo "user namespaces work"
       - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" test
   - label: ':bug: Fuzz'
