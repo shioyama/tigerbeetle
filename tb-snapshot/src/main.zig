@@ -10,6 +10,7 @@ pub const std_options: std.Options = .{
 pub fn main() !void {
     var gpa_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer gpa_instance.deinit();
+
     const gpa = gpa_instance.allocator();
 
     var arg_iterator = try std.process.argsWithAllocator(gpa);

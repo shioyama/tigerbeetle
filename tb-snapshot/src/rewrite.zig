@@ -115,6 +115,7 @@ pub fn compute_new_superblock(
 
 // --- I/O helpers ---
 
+// Synchronous wrapper around TigerBeetle's async Storage
 const SnapshotIO = struct {
     io: *IO,
     storage: Storage,
@@ -290,7 +291,6 @@ pub fn run(allocator: std.mem.Allocator, args: Args) !void {
     var io = try IO.init(128, 0);
     defer io.deinit();
 
-
     var time_instance: vsr.time.TimeOS = .{};
     var tracer = try Tracer.init(allocator, time_instance.time(), .unknown, .{
         .writer = null,
@@ -454,7 +454,12 @@ pub fn run(allocator: std.mem.Allocator, args: Args) !void {
         new_superblock.copy = @intCast(copy);
         assert(new_superblock.valid_checksum());
 
-        @memcpy(write_buf[0..@sizeOf(SuperBlockHeader)], std.mem.asBytes(&new_superblock));
+        stdx.copy_disjoint(
+            .exact,
+            u8,
+            write_buf[0..@sizeOf(SuperBlockHeader)],
+            std.mem.asBytes(&new_superblock),
+        );
         const offset = vsr.superblock.superblock_copy_size * @as(u32, @intCast(copy));
         try sio.write_buffer(write_buf[0..@sizeOf(SuperBlockHeader)], .superblock, offset);
     }
@@ -476,12 +481,14 @@ pub fn run(allocator: std.mem.Allocator, args: Args) !void {
             else
                 vsr.Header.Prepare.reserve(old_superblock.cluster, slot);
             const hdr_offset = slot * @sizeOf(vsr.Header.Prepare);
-            @memcpy(
+            stdx.copy_disjoint(
+                .exact,
+                u8,
                 headers_buf[hdr_offset..][0..@sizeOf(vsr.Header.Prepare)],
                 std.mem.asBytes(&header),
             );
         }
-        @memset(headers_buf[constants.journal_slot_count * @sizeOf(vsr.Header.Prepare)..], 0);
+        @memset(headers_buf[constants.journal_slot_count * @sizeOf(vsr.Header.Prepare) ..], 0);
 
         try sio.write_buffer(headers_buf, .wal_headers, 0);
 
@@ -497,7 +504,12 @@ pub fn run(allocator: std.mem.Allocator, args: Args) !void {
                 vsr.Header.Prepare.root(old_superblock.cluster)
             else
                 vsr.Header.Prepare.reserve(old_superblock.cluster, slot);
-            @memcpy(prepare_buf[0..@sizeOf(vsr.Header.Prepare)], std.mem.asBytes(&header));
+            stdx.copy_disjoint(
+                .exact,
+                u8,
+                prepare_buf[0..@sizeOf(vsr.Header.Prepare)],
+                std.mem.asBytes(&header),
+            );
             @memset(prepare_buf[@sizeOf(vsr.Header.Prepare)..], 0);
 
             try sio.write_buffer(
@@ -1176,7 +1188,12 @@ test "integration: format, rewrite superblock, verify quorum" {
         new_superblock.copy = @intCast(copy);
         try std.testing.expect(new_superblock.valid_checksum());
 
-        @memcpy(write_buf[0..@sizeOf(SuperBlockHeader)], std.mem.asBytes(&new_superblock));
+        stdx.copy_disjoint(
+            .exact,
+            u8,
+            write_buf[0..@sizeOf(SuperBlockHeader)],
+            std.mem.asBytes(&new_superblock),
+        );
         const offset = vsr.superblock.superblock_copy_size * @as(u32, @intCast(copy));
         try sio.write_buffer(write_buf[0..@sizeOf(SuperBlockHeader)], .superblock, offset);
     }
@@ -1256,12 +1273,14 @@ test "integration: format, clear WAL, verify all slots reserved" {
         else
             vsr.Header.Prepare.reserve(old.cluster, slot);
         const hdr_offset = slot * @sizeOf(vsr.Header.Prepare);
-        @memcpy(
+        stdx.copy_disjoint(
+            .exact,
+            u8,
             headers_buf[hdr_offset..][0..@sizeOf(vsr.Header.Prepare)],
             std.mem.asBytes(&header),
         );
     }
-    @memset(headers_buf[constants.journal_slot_count * @sizeOf(vsr.Header.Prepare)..], 0);
+    @memset(headers_buf[constants.journal_slot_count * @sizeOf(vsr.Header.Prepare) ..], 0);
 
     try sio.write_buffer(headers_buf, .wal_headers, 0);
 
