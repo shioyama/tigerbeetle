@@ -24,6 +24,15 @@ steps:
       - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" test
       - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" fuzz -- smoke
       - ./zig/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:c:sample
+  - label: ':zig: tb-snapshot — Run tests'
+    timeout: 15m
+    only:
+      path_changed:
+        - tb-snapshot/**
+        - src/**
+    run:
+      - ./zig/download.ps1
+      - cd tb-snapshot && ../zig/zig build test
   - label: ':go: Go client'
     timeout: 10m
     run:
