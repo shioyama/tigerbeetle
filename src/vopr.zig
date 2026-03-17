@@ -24,13 +24,19 @@ const vsr_vopr_options = @import("vsr_vopr_options");
 
 const state_machine = vsr_vopr_options.state_machine;
 const StateMachineType = switch (state_machine) {
-    .accounting => @import("state_machine.zig").StateMachineType,
+    .accounting, .backfill => @import("state_machine.zig").StateMachineType,
     .testing => @import("testing/state_machine.zig").StateMachineType,
 };
 
 const Cluster = @import("testing/cluster.zig").ClusterType(StateMachineType);
 const Release = @import("testing/cluster.zig").Release;
 const StateMachine = Cluster.StateMachine;
+
+/// Workload type: backfill uses a custom workload instead of the accounting workload.
+const Workload = switch (state_machine) {
+    .backfill => @import("testing/backfill_workload.zig").WorkloadType(StateMachine),
+    .accounting, .testing => StateMachine.Workload,
+};
 const Failure = @import("testing/cluster.zig").Failure;
 const PartitionMode = @import("testing/packet_simulator.zig").PartitionMode;
 const PartitionSymmetry = @import("testing/packet_simulator.zig").PartitionSymmetry;
@@ -398,7 +404,7 @@ fn options_swarm(prng: *stdx.PRNG) Simulator.Options {
                 .batch_size_limit = batch_size_limit,
                 .lsm_forest_node_count = 4096,
             },
-            .accounting => .{
+            .accounting, .backfill => .{
                 .batch_size_limit = batch_size_limit,
                 .lsm_forest_compaction_block_count = prng.int_inclusive(u32, 256) +
                     StateMachine.Forest.Options.compaction_block_count_min,
@@ -462,7 +468,7 @@ fn options_swarm(prng: *stdx.PRNG) Simulator.Options {
         .faulty_grid = replica_count > 2,
     };
 
-    const workload_options = StateMachine.Workload.Options.generate(prng, .{
+    const workload_options = Workload.Options.generate(prng, .{
         .batch_size_limit = batch_size_limit,
         .multi_batch_per_request_limit = multi_batch_per_request_limit,
         .client_count = client_count,
@@ -526,7 +532,7 @@ fn options_performance(prng: *stdx.PRNG) Simulator.Options {
                 .batch_size_limit = constants.message_body_size_max,
                 .lsm_forest_node_count = 4096,
             },
-            .accounting => .{
+            .accounting, .backfill => .{
                 .batch_size_limit = constants.message_body_size_max,
                 .lsm_forest_compaction_block_count = 128 +
                     StateMachine.Forest.Options.compaction_block_count_min,
@@ -583,7 +589,7 @@ fn options_performance(prng: *stdx.PRNG) Simulator.Options {
     };
 
     var workload_prng = stdx.PRNG.from_seed(92); // Fix workload for perf testing.
-    const workload_options = StateMachine.Workload.Options.generate(&workload_prng, .{
+    const workload_options = Workload.Options.generate(&workload_prng, .{
         .batch_size_limit = constants.message_body_size_max,
         .multi_batch_per_request_limit = 1,
         .client_count = cluster_options.client_count,
@@ -624,7 +630,7 @@ pub const Simulator = struct {
         storage: Cluster.Storage.Options,
         storage_fault_atlas: Cluster.StorageFaultAtlas.Options,
 
-        workload: StateMachine.Workload.Options,
+        workload: Workload.Options,
 
         /// Probability per tick that a crash will occur.
         replica_crash_probability: Ratio,
@@ -667,7 +673,7 @@ pub const Simulator = struct {
     prng: *stdx.PRNG,
     options: Options,
     cluster: *Cluster,
-    workload: StateMachine.Workload,
+    workload: Workload,
 
     // The number of releases in each replica's "binary".
     replica_releases: []usize,
@@ -716,7 +722,7 @@ pub const Simulator = struct {
         });
         errdefer cluster.deinit();
 
-        var workload = try StateMachine.Workload.init(gpa, prng, options.workload);
+        var workload = try Workload.init(gpa, prng, options.workload);
         errdefer workload.deinit(gpa);
 
         const replica_releases = try gpa.alloc(

@@ -139,7 +139,11 @@ pub const TransferFlags = packed struct(u16) {
     closing_debit: bool = false,
     closing_credit: bool = false,
     imported: bool = false,
-    padding: u7 = 0,
+    enable_history_debit: bool = false,
+    enable_history_credit: bool = false,
+    enable_balance_limit_debit: bool = false,
+    enable_balance_limit_credit: bool = false,
+    padding: u3 = 0,
 
     comptime {
         assert(@sizeOf(TransferFlags) == @sizeOf(u16));
@@ -288,6 +292,16 @@ pub const CreateTransferResult = enum(u32) {
     imported_event_timestamp_must_postdate_credit_account = 62,
     imported_event_timeout_must_be_zero = 63,
 
+    upgrade_transfer_must_be_pending = 69,
+    upgrade_debit_account_balance_exceeds_limit = 70,
+    upgrade_credit_account_balance_exceeds_limit = 71,
+
+    imported_pending_timestamp_must_not_regress = 72,
+    imported_pending_timestamp_must_postdate_debit_account = 73,
+    imported_pending_timestamp_must_postdate_credit_account = 74,
+
+    imported_event_timestamp_must_be_unique = 75,
+
     debit_account_already_closed = 65,
     credit_account_already_closed = 66,
 
@@ -305,7 +319,7 @@ pub const CreateTransferResult = enum(u32) {
     deprecated_18 = 18, // amount_must_not_be_zero.
 
     // Update this comment when adding a new value:
-    // Last item: id_already_failed = 68.
+    // Last item: imported_event_timestamp_must_be_unique = 75.
 
     /// Returns `true` if the error code depends on transient system status and retrying
     /// the same transfer with identical request data can produce different outcomes.
@@ -320,6 +334,8 @@ pub const CreateTransferResult = enum(u32) {
             .exceeds_debits,
             .debit_account_already_closed,
             .credit_account_already_closed,
+            .upgrade_debit_account_balance_exceeds_limit,
+            .upgrade_credit_account_balance_exceeds_limit,
             => true,
 
             .linked_event_failed,
@@ -349,6 +365,10 @@ pub const CreateTransferResult = enum(u32) {
             .imported_event_timestamp_must_postdate_debit_account,
             .imported_event_timestamp_must_postdate_credit_account,
             .imported_event_timeout_must_be_zero,
+            .imported_pending_timestamp_must_not_regress,
+            .imported_pending_timestamp_must_postdate_debit_account,
+            .imported_pending_timestamp_must_postdate_credit_account,
+            .imported_event_timestamp_must_be_unique,
             .flags_are_mutually_exclusive,
             .debit_account_id_must_not_be_zero,
             .debit_account_id_must_not_be_int_max,
@@ -361,6 +381,7 @@ pub const CreateTransferResult = enum(u32) {
             .pending_id_must_be_different,
             .timeout_reserved_for_pending_transfer,
             .closing_transfer_must_be_pending,
+            .upgrade_transfer_must_be_pending,
             .ledger_must_not_be_zero,
             .code_must_not_be_zero,
             .accounts_must_have_the_same_ledger,
