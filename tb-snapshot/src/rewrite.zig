@@ -1031,6 +1031,7 @@ test "recovery invariant: sync_op_max >= sync_op_min" {
 
 fn create_tmp_datafile(allocator: std.mem.Allocator) !struct {
     io: *IO,
+    time: *vsr.time.TimeOS,
     tracer: *Tracer,
     storage: *Storage,
     path: [:0]const u8,
@@ -1038,9 +1039,10 @@ fn create_tmp_datafile(allocator: std.mem.Allocator) !struct {
     const io = try allocator.create(IO);
     io.* = try IO.init(128, 0);
 
-    var time_instance: vsr.time.TimeOS = .{};
+    const time_instance = try allocator.create(vsr.time.TimeOS);
+    time_instance.* = .{};
     const tracer = try allocator.create(Tracer);
-    tracer.* = try Tracer.init(allocator, time_instance.time(), .unknown, .{
+    tracer.* = try Tracer.init(allocator, time_instance.*.time(), .unknown, .{
         .writer = null,
         .statsd_options = .log,
         .log_trace = false,
@@ -1080,6 +1082,7 @@ fn create_tmp_datafile(allocator: std.mem.Allocator) !struct {
 
     return .{
         .io = io,
+        .time = time_instance,
         .tracer = tracer,
         .storage = storage,
         .path = tmp_path,
@@ -1092,6 +1095,7 @@ fn cleanup_tmp_datafile(allocator: std.mem.Allocator, ctx: anytype) void {
     ctx.io.deinit();
     allocator.destroy(ctx.storage);
     allocator.destroy(ctx.tracer);
+    allocator.destroy(ctx.time);
     allocator.destroy(ctx.io);
     std.fs.cwd().deleteFile(ctx.path) catch {};
 }
