@@ -1,5 +1,5 @@
 # Shopify release pipeline for TigerBeetle.
-# Triggered on version tags (e.g. v0.16.77). Builds the TigerBeetle binary
+# Triggered on version tags (e.g. 0.16.77). Builds the TigerBeetle binary
 # and Go client, then publishes to Cloudsmith.
 
 containers:
@@ -17,7 +17,7 @@ containers:
 steps:
   - label: ':arrow_down: Download Zig'
     timeout: 5m
-    branches: "v0.*"
+    branches: "0.*"
     cache:
       - path: .zig-install
         digest:
@@ -29,7 +29,7 @@ steps:
 
   - label: ':package: Build and publish release'
     timeout: 30m
-    branches: "v0.*"
+    branches: "0.*"
     cache:
       - path: .zig-install
         digest:
