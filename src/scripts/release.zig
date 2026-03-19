@@ -35,14 +35,13 @@ pub const CLIArgs = struct {
     sha: []const u8,
     language: ?Language = null,
     build: bool = false,
-    publish: bool = false,
     // Set if there's no changelog entry for the current code. That is, if the top changelog
     // entry describes a past release, and not the release we are creating here.
     //
     // This flag is used to test the release process on the main branch.
     no_changelog: bool = false,
-    // Allow targeting only production x86_64 Linux, to speed up when invoked via devhub.
-    devhub: bool = false,
+    // Unix timestamp (seconds) to embed as the executable mtime in the release zip.
+    timestamp: u64,
 };
 
 const VersionInfo = struct {
@@ -67,23 +66,14 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     else
         LanguageSet.initFull();
 
-    if (cli_args.devhub) {
-        if (cli_args.language == null or cli_args.language.? != .zig) {
-            @panic("--devhub is only supported with --languages=zig.");
-        }
-    }
-
     const changelog_text = try shell.project_root.readFileAlloc(
         shell.arena.allocator(),
         "CHANGELOG.md",
         1 * MiB,
     );
     var changelog_iteratator = changelog.ChangelogIterator.init(changelog_text);
-    const release, const release_multiversion, const changelog_body = blk: {
+    const release, const release_multiversion, _ = blk: {
         if (cli_args.no_changelog) {
-            assert(cli_args.devhub);
-            assert(!cli_args.publish);
-
             var last_release = changelog_iteratator.next_changelog().?;
             while (last_release.release == null) {
                 last_release = changelog_iteratator.next_changelog().?;
@@ -149,7 +139,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
             release_multiversion.triple(),
         ),
         .commit_sha = cli_args.sha,
-        .commit_timestamp = try shell.git_commit_timestamp(cli_args.sha),
+        .commit_timestamp = stdx.InstantUnix.from_timestamp_s(cli_args.timestamp),
     };
 
     // Typically GitHub tag matches the release triple in the binary exactly. For exceptional
@@ -163,17 +153,19 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     }
 
     if (cli_args.build) {
-        try build(shell, languages, version_info, cli_args.devhub);
+        try build(shell, languages, version_info, false);
     }
 
-    if (cli_args.publish) {
-        assert(!cli_args.no_changelog);
-        assert(!cli_args.devhub);
-        try publish(shell, languages, changelog_body, version_info);
-    }
+    // Retained from upstream to avoid merge conflicts; suppress tidy dead-code check.
+    _ = &publish;
 }
 
 fn build(shell: *Shell, languages: LanguageSet, info: VersionInfo, devhub: bool) !void {
+    _ = languages;
+    _ = devhub;
+
+    const active = LanguageSet.initMany(&.{ .zig, .go });
+
     var section = try shell.open_section("build all");
     defer section.close();
 
@@ -185,82 +177,59 @@ fn build(shell: *Shell, languages: LanguageSet, info: VersionInfo, devhub: bool)
         try dist_dir.realpathAlloc(shell.arena.allocator(), "."),
     });
 
-    if (languages.contains(.zig)) {
+    if (active.contains(.zig)) {
         var dist_dir_tigerbeetle = try dist_dir.makeOpenPath("tigerbeetle", .{});
         defer dist_dir_tigerbeetle.close();
 
-        if (devhub) {
-            try build_tigerbeetle_target(shell, info, dist_dir_tigerbeetle, false, "x86_64-linux");
-        } else {
-            try build_tigerbeetle(shell, info, dist_dir_tigerbeetle);
-        }
+        try build_tigerbeetle(shell, info, dist_dir_tigerbeetle);
 
-        var dist_dir_vortex = try dist_dir.makeOpenPath("vortex", .{});
-        defer dist_dir_vortex.close();
-
-        const vortex_targets = .{
-            "x86_64-linux",
-            "aarch64-linux",
-        };
-        inline for (vortex_targets) |target| {
-            try build_vortex_driver_target(shell, info, dist_dir_vortex, target);
-        }
+        // Retained from upstream to avoid merge conflicts; suppress tidy dead-code check.
+        _ = &build_vortex_driver_target;
     }
 
-    if (languages.contains(.dotnet)) {
+    if (active.contains(.dotnet)) {
         var dist_dir_dotnet = try dist_dir.makeOpenPath("dotnet", .{});
         defer dist_dir_dotnet.close();
 
         try build_dotnet(shell, info, dist_dir_dotnet);
     }
 
-    if (languages.contains(.go)) {
+    if (active.contains(.go)) {
         var dist_dir_go = try dist_dir.makeOpenPath("go", .{});
         defer dist_dir_go.close();
 
         try build_go(shell, info, dist_dir_go);
     }
 
-    if (languages.contains(.java)) {
+    if (active.contains(.java)) {
         var dist_dir_java = try dist_dir.makeOpenPath("java", .{});
         defer dist_dir_java.close();
 
         try build_java(shell, info, dist_dir_java);
     }
 
-    if (languages.contains(.node)) {
+    if (active.contains(.node)) {
         var dist_dir_node = try dist_dir.makeOpenPath("node", .{});
         defer dist_dir_node.close();
 
         try build_node(shell, info, dist_dir_node);
     }
 
-    if (languages.contains(.python)) {
+    if (active.contains(.python)) {
         var dist_dir_python = try dist_dir.makeOpenPath("python", .{});
         defer dist_dir_python.close();
 
         try build_python(shell, info, dist_dir_python);
     }
 
-    if (languages.contains(.rust)) {
+    if (active.contains(.rust)) {
         // Currently disabled.
         _ = &build_rust;
     }
 }
 
 fn build_tigerbeetle(shell: *Shell, info: VersionInfo, dist_dir: std.fs.Dir) !void {
-    const targets = .{
-        "x86_64-linux",
-        "x86_64-windows",
-        "aarch64-linux",
-        "aarch64-macos", // Will build a universal binary.
-    };
-
-    inline for (.{ true, false }) |debug| {
-        inline for (targets) |target| {
-            try build_tigerbeetle_target(shell, info, dist_dir, debug, target);
-        }
-    }
+    try build_tigerbeetle_target(shell, info, dist_dir, false, "x86_64-linux");
 }
 
 fn build_tigerbeetle_target(
@@ -415,26 +384,11 @@ fn build_go(shell: *Shell, info: VersionInfo, dist_dir: std.fs.Dir) !void {
         .release_triple_client_min = info.release_triple_client_min,
     });
 
-    const files = try shell.exec_stdout("git ls-files", .{});
-    var files_lines = std.mem.tokenizeScalar(u8, files, '\n');
-    var copied_count: u32 = 0;
-    while (files_lines.next()) |file| {
-        assert(file.len > 3);
+    const files = try shell.find(.{ .where = &.{"."} });
+    assert(files.len >= 10);
+    for (files) |file| {
         try Shell.copy_path(shell.cwd, file, dist_dir, file);
-        copied_count += 1;
     }
-    assert(copied_count >= 10);
-
-    const native_files = try shell.find(.{ .where = &.{"."}, .extensions = &.{ ".a", ".lib" } });
-    copied_count = 0;
-    for (native_files) |native_file| {
-        try Shell.copy_path(shell.cwd, native_file, dist_dir, native_file);
-        copied_count += 1;
-    }
-    // 5 = 3 + 2
-    //     3 = x86_64 for mac, windows and linux
-    //         2 = aarch64 for mac and linux
-    assert(copied_count == 5);
 
     const readme = try shell.fmt(
         \\# tigerbeetle-go
