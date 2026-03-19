@@ -757,7 +757,14 @@ pub fn ReplicaType(
             errdefer self.deinit(allocator);
 
             self.opened = false;
-            self.journal.recover(journal_recover_callback);
+            const skip_wal = self.superblock.working.flags &
+                vsr.superblock.SuperBlockHeader.flag_wal_skip_next_open != 0;
+            if (skip_wal) {
+                log.info("{}: open: skipping WAL recovery (clean upgrade)", .{self.log_prefix()});
+                self.journal.recover_fast(journal_recover_callback);
+            } else {
+                self.journal.recover(journal_recover_callback);
+            }
             while (!self.opened) self.superblock.storage.run();
 
             // Abort if all slots are faulty, since something is very wrong.
@@ -875,7 +882,14 @@ pub fn ReplicaType(
                 self.log_view += 1;
                 self.view += 1;
                 self.routing.view_change(self.view);
-                self.primary_update_view_headers();
+                // After a clean upgrade WAL skip, self.view_headers was initialized from the
+                // upgrade checkpoint's superblock in init() and already contains the head op.
+                // The journal has only reserved headers so find_latest_headers_break_between
+                // would report a full-journal break and fail primary_update_view_headers.
+                // The superblock view_headers are correct and sufficient for view_durable_update.
+                const wal_skip = self.superblock.working.flags &
+                    vsr.superblock.SuperBlockHeader.flag_wal_skip_next_open != 0;
+                if (!wal_skip) self.primary_update_view_headers();
                 self.view_durable_update();
 
                 if (self.commit_min == self.op) {
@@ -5182,9 +5196,14 @@ pub fn ReplicaType(
                 .{
                     .header = self.journal.header_with_op(vsr_state_commit_min).?.*,
                     .view_attributes = view_attributes: {
-                        // view_headers for solo replicas do not include ops that are not durable in
-                        // their journal.
-                        break :view_attributes if (self.solo())
+                        // Solo replicas normally exclude view_headers to avoid referencing ops not
+                        // yet durable in their journal. The exception is upgrade checkpoints: the
+                        // WAL is fully synced before exec(), so all ops up to the trigger are
+                        // durable. The new binary may skip WAL recovery and needs view_headers to
+                        // contain the checkpoint trigger op in order to recover op_head.
+                        const next_release = self.release_for_next_checkpoint().?.value;
+                        const is_upgrade = next_release != self.release.value;
+                        break :view_attributes if (self.solo() and !is_upgrade)
                             null
                         else
                             .{
@@ -5208,6 +5227,11 @@ pub fn ReplicaType(
                         .client_sessions_checkpoint.checkpoint_reference(),
                     .storage_size = storage_size,
                     .release = self.release_for_next_checkpoint().?,
+                    // Signal the new binary to skip WAL recovery on its first open after exec().
+                    .flags = if (self.release_for_next_checkpoint().?.value != self.release.value)
+                        vsr.superblock.SuperBlockHeader.flag_wal_skip_next_open
+                    else
+                        0,
                 },
             );
             return .pending;

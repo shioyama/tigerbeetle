@@ -396,6 +396,10 @@ pub const SuperBlockHeader = extern struct {
         }
     };
 
+    /// Set by an upgrade checkpoint to allow the new binary to skip WAL recovery.
+    /// Cleared on the new binary's first superblock write (view_durable_update via view_change).
+    pub const flag_wal_skip_next_open: u64 = 1 << 0;
+
     pub fn calculate_checksum(superblock: *const SuperBlockHeader) u128 {
         comptime assert(meta.fieldIndex(SuperBlockHeader, "checksum") == 0);
         comptime assert(meta.fieldIndex(SuperBlockHeader, "checksum_padding") == 1);
@@ -423,7 +427,8 @@ pub const SuperBlockHeader = extern struct {
 
         assert(superblock.version == SuperBlockVersion);
         assert(superblock.release_format.value > 0);
-        assert(superblock.flags == 0);
+        // Only flag_wal_skip_next_open is currently defined; all other flag bits must be zero.
+        assert(superblock.flags & ~SuperBlockHeader.flag_wal_skip_next_open == 0);
 
         assert(stdx.zeroed(&superblock.reserved));
         assert(stdx.zeroed(&superblock.vsr_state.reserved));
@@ -668,6 +673,9 @@ pub fn SuperBlockType(comptime Storage: type) type {
             /// Used by format() and view_change().
             view_headers: ?vsr.Headers.ViewChangeArray = null,
             repairs: ?Quorums.RepairIterator = null, // Used by open().
+            /// SuperBlockHeader.flags to write. Defaults to 0 (clears any existing flags).
+            /// Set to flag_wal_skip_next_open for upgrade checkpoints.
+            flags: u64 = 0,
         };
 
         storage: *Storage,
@@ -885,6 +893,9 @@ pub fn SuperBlockType(comptime Storage: type) type {
             client_sessions_reference: TrailerReference,
             storage_size: u64,
             release: vsr.Release,
+            /// SuperBlockHeader.flags to embed in this checkpoint.
+            /// Set to flag_wal_skip_next_open for upgrade checkpoints.
+            flags: u64 = 0,
         };
 
         /// Must update the commit_min and commit_min_checksum.
@@ -981,6 +992,7 @@ pub fn SuperBlockType(comptime Storage: type) type {
                         superblock.staging.view_headers().command,
                         superblock.staging.view_headers().slice,
                     ),
+                .flags = update.flags,
             };
             superblock.log_context(context);
             superblock.acquire(context);
@@ -1116,6 +1128,7 @@ pub fn SuperBlockType(comptime Storage: type) type {
                 assert(!context.caller.updates_view_headers());
             }
 
+            superblock.staging.flags = context.flags;
             context.copy = 0;
             superblock.staging.set_checksum();
             superblock.write_header(context);
