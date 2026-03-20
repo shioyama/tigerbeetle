@@ -42,5 +42,3 @@ steps:
         artifacts:
           - path: zig-out/dist/tigerbeetle
             patterns: ["tigerbeetle-x86_64-linux.zip"]
-          - path: zig-out/dist/go
-            patterns: ["*"]
