@@ -33,6 +33,7 @@ steps:
           - zig/download.sh
         upload: false
     run:
+      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
     publish:
       package:
