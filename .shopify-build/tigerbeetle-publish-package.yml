@@ -35,10 +35,11 @@ steps:
     run:
       - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
+      - mv zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux-$BUILDKITE_BRANCH.zip
     publish:
       package:
         repository_name: binaries
         package_type: raw
         artifacts:
           - path: zig-out/dist/tigerbeetle
-            patterns: ["tigerbeetle-x86_64-linux.zip"]
+            patterns: ["tigerbeetle-*.zip"]
