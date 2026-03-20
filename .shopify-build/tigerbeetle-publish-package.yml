@@ -35,11 +35,27 @@ steps:
     run:
       - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
-      - mv zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux-$BUILDKITE_BRANCH.zip
+      - |
+        VERSION=$BUILDKITE_BRANCH
+        PKG=tigerbeetle_${VERSION}_amd64
+        mkdir -p deb-pkg/${PKG}/DEBIAN deb-pkg/${PKG}/usr/bin
+        unzip zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip -d deb-pkg/${PKG}/usr/bin/
+        chmod 755 deb-pkg/${PKG}/usr/bin/tigerbeetle
+        cat > deb-pkg/${PKG}/DEBIAN/control <<CTRL
+        Package: tigerbeetle
+        Version: ${VERSION}
+        Architecture: amd64
+        Maintainer: Shopify <infrastructure@shopify.com>
+        Description: TigerBeetle financial transactions database
+        CTRL
+        sed -i 's/^        //' deb-pkg/${PKG}/DEBIAN/control
+        dpkg-deb --build deb-pkg/${PKG} deb-pkg/
     publish:
       package:
-        repository_name: binaries
-        package_type: raw
+        repository_name: 'public'
+        package_type: 'deb'
+        distro_version: 'ubuntu/noble'
+        fail_on_duplicate: false
         artifacts:
-          - path: zig-out/dist/tigerbeetle
-            patterns: ["tigerbeetle-*.zip"]
+          - path: deb-pkg
+            patterns: ['*.deb']
