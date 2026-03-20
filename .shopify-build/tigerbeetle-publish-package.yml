@@ -1,0 +1,19 @@
+containers:
+  default:
+    build:
+      from: ubuntu-24
+      type: ci
+
+# TODO: replace all items in curly braces according to your package package_type
+# refer to: https://shopify-build.docs.shopify.io/jobs/publish_packages_to_cloudsmith/
+steps:
+  - label: Publish to Cloudsmith
+    timeout: 10m
+    run: {your-package-building-command}
+    publish:
+      package:
+        repository_name: {repo_name}
+        package_type: {package_type}
+        artifacts:
+          - path: {package_folder}
+            patterns: ["*.{file_suffix}"]
