@@ -33,7 +33,7 @@ steps:
           - zig/download.sh
         upload: false
     run:
-      - ./.zig-install/zig build scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
+      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
     publish:
       package:
         repository_name: binaries
