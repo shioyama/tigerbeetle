@@ -71,23 +71,3 @@ steps:
         upload: false
     run:
       - cd tb-snapshot && ../.zig-install/zig build test
-
-  - label: ':package: Build and publish release'
-    timeout: 30m
-    branches: "0.*"
-    cache:
-      - path: .zig-install
-        digest:
-          - zig/download.sh
-        upload: false
-    run:
-      - ./.zig-install/zig build scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
-    publish:
-      package:
-        repository_name: binaries
-        package_type: raw
-        artifacts:
-          - path: zig-out/dist/tigerbeetle
-            patterns: ["tigerbeetle-x86_64-linux.zip"]
-          - path: zig-out/dist/go
-            patterns: ["*"]
