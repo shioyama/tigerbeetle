@@ -169,7 +169,7 @@ fn build(shell: *Shell, languages: LanguageSet, info: VersionInfo, devhub: bool)
     var section = try shell.open_section("build all");
     defer section.close();
 
-    try shell.project_root.deleteTree("zig-out/dist");
+    shell.project_root.deleteTree("zig-out/dist") catch {};
     var dist_dir = try shell.project_root.makeOpenPath("zig-out/dist", .{});
     defer dist_dir.close();
 
