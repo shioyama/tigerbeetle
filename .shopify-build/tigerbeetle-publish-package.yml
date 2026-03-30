@@ -26,7 +26,7 @@ steps:
 
   - label: ':package: Build and publish release'
     timeout: 30m
-    branches: "0.*"
+    branches: "0.*-shopify*"
     cache:
       - path: .zig-install
         digest:
