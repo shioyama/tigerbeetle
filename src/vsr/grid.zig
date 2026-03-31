@@ -10,7 +10,7 @@ const schema = @import("../lsm/schema.zig");
 
 const SuperBlockType = vsr.SuperBlockType;
 const QueueType = @import("../queue.zig").QueueType;
-const IOPSType = @import("../iops.zig").IOPSType;
+const IOPSType = stdx.IOPSType;
 const SetAssociativeCacheType = @import("../lsm/set_associative_cache.zig").SetAssociativeCacheType;
 const stdx = @import("stdx");
 const GridBlocksMissing = @import("./grid_blocks_missing.zig").GridBlocksMissing;
@@ -502,7 +502,7 @@ pub fn GridType(comptime Storage: type) type {
 
             var write_queue_iterator = grid.write_queue.iterate();
             while (write_queue_iterator.next()) |write| {
-                assert(write.repair);
+                maybe(write.repair);
                 assert(!grid.free_set.is_free(write.address));
                 assert(!grid.free_set.to_be_freed_at_checkpoint_durability(write.address));
             }
@@ -1117,6 +1117,18 @@ pub fn GridType(comptime Storage: type) type {
 
             assert(read.address > 0);
 
+            // Check the write queue before checking the read queue, since otherwise:
+            // 1. Read block. (coherent=false, i.e. via repair)
+            // 2. Create block. (start)
+            // 3. Read block again. (coherent=true)
+            // We must ensure that the second read succeeds, so that it doesn't just queue up behind
+            // the first read.
+            if (grid.read_block_from_write_queues(read.address, read.checksum)) |block| {
+                grid.assert_coherent(read.address, read.checksum);
+                grid.read_block_resolve(read, .{ .valid = block });
+                return;
+            }
+
             // Check if a read is already processing/recovering and merge with it.
             for ([_]*const QueueType(Read){
                 &grid.read_queue,
@@ -1139,12 +1151,6 @@ pub fn GridType(comptime Storage: type) type {
                         }
                     }
                 }
-            }
-
-            if (grid.read_block_from_write_queues(read.address, read.checksum)) |block| {
-                grid.assert_coherent(read.address, read.checksum);
-                grid.read_block_resolve(read, .{ .valid = block });
-                return;
             }
 
             // When Read.cache_read is set, the caller of read_block()
