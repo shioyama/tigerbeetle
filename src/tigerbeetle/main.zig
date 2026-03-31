@@ -249,8 +249,43 @@ fn command_start(
     // TODO Panic if the data file's size is larger that args.storage_size_limit.
     // (Here or in Replica.open()?).
 
+    // In shadow mode, read the superblock header to determine
+    // this replica's member index for the listen address.
+    const own_member_index: ?u8 = blk: {
+        if (args.shadow == null) break :blk null;
+        const sector_size = constants.sector_size;
+        var buf: [sector_size]u8 align(sector_size) = undefined;
+        const n = std.posix.pread(
+            storage.fd,
+            &buf,
+            0,
+        ) catch break :blk null;
+        if (n < buf.len) break :blk null;
+        const h: *const vsr.superblock.SuperBlockHeader =
+            @ptrCast(@alignCast(&buf));
+        break :blk vsr.member_index(
+            &h.vsr_state.members,
+            h.vsr_state.replica_id,
+        );
+    };
+
+    const shadow_addresses = if (args.shadow != null)
+        args.shadow.?.const_slice()
+    else
+        null;
+    const effective_addresses = shadow_addresses orelse args.addresses.const_slice();
+    // In shadow mode, we need standby slots for each green replica.
+    // Since green was cloned from blue, replica_count equals the
+    // number of blue addresses passed via --shadow.
+    const shadow_slot_count: u8 = if (shadow_addresses) |sa|
+        @intCast(sa.len)
+    else
+        args.shadower_count;
+    const effective_node_count: u8 =
+        @intCast(effective_addresses.len + shadow_slot_count);
+
     var message_pool = try MessagePool.init(gpa, .{ .replica = .{
-        .members_count = args.addresses.count_as(u8),
+        .members_count = effective_node_count,
         .pipeline_requests_limit = args.pipeline_requests_limit,
         .message_bus = .tcp,
     } });
@@ -342,7 +377,7 @@ fn command_start(
         storage,
         &message_pool,
         .{
-            .node_count = args.addresses.count_as(u8),
+            .node_count = effective_node_count,
             .release = config.process.release,
             .release_client_min = config.process.release_client_min,
             .multiversion = multiversion,
@@ -365,16 +400,22 @@ fn command_start(
                 .aof_recovery = args.aof_recovery,
             },
             .message_bus_options = .{
-                .configuration = args.addresses.const_slice(),
+                .configuration = effective_addresses,
                 .io = io,
                 .clients_limit = clients_limit,
                 .trace = tracer,
+                .shadower_count = shadow_slot_count,
+                .listen_address = if (shadow_addresses != null)
+                    args.addresses.const_slice()[own_member_index.?]
+                else
+                    null,
             },
             .grid_cache_blocks_count = args.cache_grid_blocks,
             .tracer = tracer,
             .replicate_options = .{
                 .star = args.replicate_star,
             },
+            .shadow = shadow_addresses != null,
         },
     ) catch |err| switch (err) {
         error.NoAddress => vsr.fatal(.cli, "all --addresses must be provided", .{}),
@@ -424,6 +465,13 @@ fn command_start(
         replica.cluster,
         replica.message_bus.accept_address.?,
     });
+
+    if (shadow_addresses != null) {
+        log.info(
+            "{}: started in shadow mode (standby index={})",
+            .{ replica.replica, replica.replica },
+        );
+    }
 
     if (args.aof_recovery) {
         log.warn(
