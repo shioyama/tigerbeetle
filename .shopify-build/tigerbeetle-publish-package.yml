@@ -35,12 +35,15 @@ steps:
     run:
       - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
+      - cd tb-snapshot && ../.zig-install/zig build -Dtarget=x86_64-linux -Dconfig-release="${BUILDKITE_BRANCH%%-shopify*}" -Dconfig-release-client-min=0.16.4
       - |
         VERSION=$BUILDKITE_BRANCH
         PKG=tigerbeetle_${VERSION}_amd64
         mkdir -p deb-pkg/${PKG}/DEBIAN deb-pkg/${PKG}/usr/bin
         unzip zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip -d deb-pkg/${PKG}/usr/bin/
         chmod 755 deb-pkg/${PKG}/usr/bin/tigerbeetle
+        cp tb-snapshot/zig-out/bin/tb-snapshot deb-pkg/${PKG}/usr/bin/
+        chmod 755 deb-pkg/${PKG}/usr/bin/tb-snapshot
         cat > deb-pkg/${PKG}/DEBIAN/control <<CTRL
         Package: tigerbeetle
         Version: ${VERSION}
