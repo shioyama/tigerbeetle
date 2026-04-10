@@ -10,6 +10,7 @@ Use `git log --grep='\[shopify\]'` to list all patch commits.
 
 **Source:** shopify-playground/tigerbeetle#9
 **Status:** active
+**Version:** 0.16.77-shopify1
 
 Enables piecemeal (non-monotonic) backfills into a live TigerBeetle cluster by relaxing the imported timestamp regression check. Non-pending, non-balancing imported transfers no longer require monotonically increasing timestamps. Pending imported transfers retain their checks (new error codes: `imported_pending_timestamp_must_not_regress`, `imported_pending_timestamp_must_postdate_debit_account`, `imported_pending_timestamp_must_postdate_credit_account`).
 
@@ -21,6 +22,7 @@ Includes backfill fuzzer (`src/backfill_fuzz.zig`), VOPR backfill workload (`src
 
 **Source:** shopify-playground/tigerbeetle#7
 **Status:** active
+**Version:** 0.16.77-shopify1
 
 Implements a fast WAL recovery path (`recover_fast`) that skips WAL body integrity checks when a replica restarts as part of a version upgrade. On upgrade, the superblock sets `flag_wal_skip_next_open`; on the next open, the journal reads only WAL headers (256 KiB) rather than the full WAL body. Eliminates the WAL recovery I/O cost on upgrade restarts.
 
@@ -29,6 +31,7 @@ Implements a fast WAL recovery path (`recover_fast`) that skips WAL body integri
 ## shopify/release-x86-linux-only
 
 **Status:** active
+**Version:** 0.16.77-shopify1
 
 Minimal changes to the release script (`src/scripts/release.zig`) for Shopify Build. Upstream code is preserved wherever possible to minimize merge conflicts. Changes from upstream:
 

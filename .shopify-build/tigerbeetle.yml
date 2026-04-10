@@ -15,6 +15,17 @@ containers:
           - golang-go
 
 steps:
+  - label: ':memo: PATCHES.md check'
+    if: build.pull_request.id != null
+    timeout: 2m
+    only:
+      path_changed:
+        - src/**
+    git:
+      history: shallow
+    run:
+      - bash .shopify-build/scripts/check-patches-md.sh
+
   - label: ':arrow_down: Download Zig'
     timeout: 5m
     cache:

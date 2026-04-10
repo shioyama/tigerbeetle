@@ -1330,6 +1330,7 @@ test "tidy unix permissions" {
         "zig/download.sh",
         ".github/ci/test_aof.sh",
         "src/scripts/cfo_supervisor.sh",
+        ".shopify-build/scripts/check-patches-md.sh",
     };
 
     const allocator = std.testing.allocator;
@@ -1395,6 +1396,7 @@ test "tidy extensions" {
         .{".github/ci/test_aof.sh"},
         .{".shopify-build/VERSION"},
         .{".shopify-build/install-zig.sh"},
+        .{".shopify-build/scripts/check-patches-md.sh"},
         .{"src/clients/python/pyproject.toml"},
         .{"src/clients/python/src/tigerbeetle/py.typed"},
     });
