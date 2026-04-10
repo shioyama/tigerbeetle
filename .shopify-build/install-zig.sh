@@ -6,6 +6,6 @@ if [ -f .zig-install/zig ]; then
     exit 0
 fi
 
-./zig/download.ps1
+sh -eux ./zig/download.sh
 mkdir -p .zig-install
 mv zig/zig zig/lib zig/doc zig/LICENSE zig/README.md .zig-install/
