@@ -624,6 +624,11 @@ pub fn ReplicaType(
 
         replicate_options: ReplicateOptions,
 
+        /// When true, this replica is operating as a shadow standby of another
+        /// cluster. It uses an overridden wire identity (standby index) and will
+        /// need to transition to its true identity at switchover.
+        shadow_mode: bool = false,
+
         const OpenOptions = struct {
             node_count: u8,
             pipeline_requests_limit: u32,
@@ -643,6 +648,10 @@ pub fn ReplicaType(
             timeout_grid_repair_message_ticks: ?u64 = null,
             commit_stall_probability: ?Ratio,
             replicate_options: ReplicateOptions = .{},
+            /// When true, the replica operates in shadow mode: it connects to
+            /// another cluster as a standby. The standby index is computed as
+            /// replica_count + own_index.
+            shadow: bool = false,
         };
 
         /// Initializes and opens the provided replica using the options.
@@ -685,7 +694,7 @@ pub fn ReplicaType(
             self.superblock.working.vsr_state.assert_internally_consistent();
 
             const replica_id = self.superblock.working.vsr_state.replica_id;
-            const replica = for (self.superblock.working.vsr_state.members, 0..) |member, index| {
+            var replica: u8 = for (self.superblock.working.vsr_state.members, 0..) |member, index| {
                 if (member == replica_id) break @as(u8, @intCast(index));
             } else unreachable;
             const replica_count = self.superblock.working.vsr_state.replica_count;
@@ -696,6 +705,14 @@ pub fn ReplicaType(
                     options.node_count,
                 });
                 return error.NoAddress;
+            }
+
+            // In shadow mode, override the replica index to a
+            // standby index in the blue cluster.
+            if (options.shadow) {
+                assert(options.node_count == 2 * @as(u8, replica_count));
+                replica = replica_count + replica;
+                assert(replica < options.node_count);
             }
 
             self.trace = options.tracer;
@@ -734,6 +751,8 @@ pub fn ReplicaType(
                     .tracer = options.tracer,
                 },
             );
+
+            self.shadow_mode = options.shadow;
 
             // Disable all dynamic allocation from this point onwards.
             self.static_allocator.transition_from_init_to_static();

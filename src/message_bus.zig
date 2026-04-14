@@ -33,6 +33,9 @@ pub fn MessageBusType(comptime IO: type) type {
         /// Prefix for log messages.
         id: u128,
 
+        /// Override for the listen address (used in shadow mode).
+        listen_address_override: ?Address = null,
+
         /// The file descriptor for the process on which to accept connections.
         accept_fd: ?IO.socket_t = null,
         /// Address the accept_fd is bound to, as reported by `getsockname`.
@@ -90,6 +93,13 @@ pub fn MessageBusType(comptime IO: type) type {
             io: *IO,
             trace: ?*Tracer,
             clients_limit: ?u32 = null,
+            /// Extra replica slots that accept inbound connections but have no
+            /// outbound address. Used to reserve standby slots for shadow replicas.
+            shadower_count: u8 = 0,
+            /// Override the listen address. When null, uses configuration[process.replica].
+            /// Used in shadow mode where process.replica is a standby index beyond
+            /// the configuration array.
+            listen_address: ?Address = null,
         };
         const Address = std.net.Address;
         const MessageBus = @This();
@@ -107,10 +117,11 @@ pub fn MessageBusType(comptime IO: type) type {
                 .client => assert(options.clients_limit == null),
             }
 
+            const total_replicas = options.configuration.len + options.shadower_count;
             const connections_max: u32 = switch (process_id) {
                 // The maximum number of connections that can be held open by the server at any
                 // time. -1 since we don't need a connection to ourself.
-                .replica => @intCast(options.configuration.len - 1 + options.clients_limit.?),
+                .replica => @intCast(total_replicas - 1 + options.clients_limit.?),
                 .client => @intCast(options.configuration.len),
             };
 
@@ -136,7 +147,7 @@ pub fn MessageBusType(comptime IO: type) type {
                 };
             }
 
-            const replicas = try allocator.alloc(?*Connection, options.configuration.len);
+            const replicas = try allocator.alloc(?*Connection, total_replicas);
             errdefer allocator.free(replicas);
             @memset(replicas, null);
 
@@ -144,7 +155,7 @@ pub fn MessageBusType(comptime IO: type) type {
             errdefer allocator.free(replicas_addresses);
             stdx.copy_disjoint(.exact, Address, replicas_addresses, options.configuration);
 
-            const replicas_connect_attempts = try allocator.alloc(u64, options.configuration.len);
+            const replicas_connect_attempts = try allocator.alloc(u64, total_replicas);
             errdefer allocator.free(replicas_connect_attempts);
             @memset(replicas_connect_attempts, 0);
 
@@ -161,6 +172,7 @@ pub fn MessageBusType(comptime IO: type) type {
                     .replica => |index| @as(u128, index),
                     .client => |id| id,
                 },
+                .listen_address_override = options.listen_address,
                 .on_messages_callback = on_messages_callback,
                 .send_queue_buffer = send_queue_buffer,
                 .connections = connections,
@@ -248,7 +260,8 @@ pub fn MessageBusType(comptime IO: type) type {
             assert(bus.accept_fd == null);
             assert(bus.accept_address == null);
 
-            const address = bus.replicas_addresses[bus.process.replica];
+            const address = bus.listen_address_override orelse
+                bus.replicas_addresses[bus.process.replica];
             const fd = try init_tcp(bus.io, .replica, address.any.family);
             errdefer bus.io.close_socket(fd);
 
@@ -299,14 +312,29 @@ pub fn MessageBusType(comptime IO: type) type {
                 // Each replica is responsible for connecting to replicas that come
                 // after it in the configuration. This ensures that replicas never try
                 // to connect to each other at the same time.
-                .replica => |replica| replica + 1,
+                //
+                // Shadow replicas (index >= replicas_addresses.len) connect to all
+                // replicas with known addresses, since they won't receive inbound
+                // connections (blue doesn't know their address).
+                .replica => |replica| if (replica >= bus.replicas_addresses.len)
+                    0
+                else
+                    replica + 1,
                 // The client connects to all replicas.
                 .client => 0,
             };
-            for (bus.replicas[replica_next..], replica_next..) |*connection, replica| {
-                if (connection.* == null) bus.connect(@intCast(replica));
+            // Only connect outbound to replicas with known addresses.
+            // Shadow slots (indices >= replicas_addresses.len) accept inbound only.
+            const connect_max = bus.replicas_addresses.len;
+            if (replica_next < connect_max) {
+                for (
+                    bus.replicas[replica_next..connect_max],
+                    replica_next..,
+                ) |*connection, replica| {
+                    if (connection.* == null) bus.connect(@intCast(replica));
+                }
+                assert(bus.connections_used >= connect_max - replica_next);
             }
-            assert(bus.connections_used >= bus.replicas.len - replica_next);
         }
 
         fn tick_accept(bus: *MessageBus) void {
@@ -438,7 +466,11 @@ pub fn MessageBusType(comptime IO: type) type {
         /// The slot in the Message.replicas slices is immediately reserved.
         /// Failure is silent and returns the connection to an unused state.
         fn connect_connection(bus: *MessageBus, connection: *Connection, replica: u8) void {
-            if (bus.process == .replica) assert(replica > bus.process.replica);
+            // Shadow replicas (index >= replicas_addresses.len) connect to
+            // lower-indexed replicas, so relax the ordering assertion.
+            if (bus.process == .replica and bus.process.replica < bus.replicas_addresses.len) {
+                assert(replica > bus.process.replica);
+            }
 
             assert(connection.state == .free);
             assert(connection.fd == null);
@@ -671,7 +703,7 @@ pub fn MessageBusType(comptime IO: type) type {
 
             switch (peer) {
                 .replica => |replica_index| {
-                    if (replica_index >= bus.replicas_addresses.len) return false;
+                    if (replica_index >= bus.replicas.len) return false;
 
                     // Allowed transitions:
                     // * unknown        → replica
