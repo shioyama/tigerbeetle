@@ -18,9 +18,6 @@ steps:
   - label: ':memo: PATCHES.md check'
     if: build.pull_request.id != null
     timeout: 2m
-    only:
-      path_changed:
-        - src/**
     git:
       history: shallow
     run:
