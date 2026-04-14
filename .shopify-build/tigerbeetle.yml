@@ -15,13 +15,13 @@ containers:
           - golang-go
 
 steps:
-  - label: ':memo: PATCHES.md check'
+  - label: ':memo: Check fork commits'
     if: build.pull_request.id != null
     timeout: 2m
     git:
       history: shallow
     run:
-      - bash .shopify-build/scripts/check-patches-md.sh
+      - bash .shopify-build/scripts/check-fork-commits.sh
 
   - label: ':arrow_down: Download Zig'
     timeout: 5m
