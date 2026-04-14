@@ -22,6 +22,11 @@ steps:
     run:
       - sh .shopify-build/install-zig.sh
 
+  - label: ':memo: No unreleased patches'
+    timeout: 1m
+    run:
+      - grep -q '^\*\*Version:\*\* unreleased' PATCHES.md && echo "ERROR: PATCHES.md contains unreleased entries. Assign versions before publishing." && exit 1 || true
+
   - wait
 
   - label: ':package: Build and publish release'
