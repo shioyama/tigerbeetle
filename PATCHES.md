@@ -10,7 +10,7 @@ Use `git log --grep='\[shopify\]'` to list all patch commits.
 
 **Source:** shop/tigerbeetle#17
 **Status:** active
-**Version:** Unreleased
+**Version:** 0.16.78-shopify2
 
 Adds shadow mode for blue-green cluster management. A green cluster connects to a running blue cluster as standbys, syncing all committed prepares. Blue reserves shadow slots with `--shadower-count=N`; green connects with `--shadow=<blue addresses>`. The connection direction is reversed from standard standby mode (green initiates connections to blue, since blue doesn't know green's addresses upfront).
 
