@@ -3,6 +3,21 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Packaging
+
+- Publish pipeline now builds Go client and includes it in the Cloudsmith deb
+  package under `/usr/share/tigerbeetle/go-client/`. Build steps for
+  TigerBeetle, Go client, and tb-snapshot run in parallel.
+
+- Fork convention checks (commit prefixes, changelog validation) moved from
+  bash scripts to Zig tidy tests and `changelog.zig`. Release readiness check
+  moved to `release.zig`.
+
+- Renamed `PATCHES.md` to `SHOPIFY-CHANGELOG.md` with version-centric format
+  matching upstream `CHANGELOG.md`.
+
 ## TigerBeetle 0.16.78-shopify2
 
 Released: 2026-04-14
