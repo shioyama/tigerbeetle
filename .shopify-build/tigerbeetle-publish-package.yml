@@ -36,7 +36,7 @@ steps:
         upload: false
     run:
       - ./.zig-install/zig build scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
-      - mkdir -p artifacts && tar czf artifacts/go-client.tar.gz -C src/clients/go .
+      - mkdir -p artifacts && tar czf artifacts/go-client.tar.gz -C src/clients/go go.mod go.sum tb_client.go pkg/types pkg/errors pkg/native/native.go pkg/native/tb_client.h pkg/native/libtb_client_x86_64-linux.a LICENSE
     artifact_paths:
       - zig-out/dist/tigerbeetle/*.zip
       - artifacts/*.tar.gz
