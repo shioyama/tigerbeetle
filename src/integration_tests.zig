@@ -518,7 +518,7 @@ test "shadow cluster" {
     );
     defer _ = blue_process.kill() catch {};
 
-    std.time.sleep(3 * std.time.ns_per_s);
+    std.time.sleep(10 * std.time.ns_per_s);
 
     const repl = "{tigerbeetle} repl" ++
         " --cluster=0 --addresses={address}" ++
@@ -665,7 +665,7 @@ test "shadow cluster multi-replica" {
         );
     }
     log.info("multi-replica: waiting for blue startup", .{});
-    std.time.sleep(5 * std.time.ns_per_s);
+    std.time.sleep(10 * std.time.ns_per_s);
 
     const repl = "{tigerbeetle} repl" ++
         " --cluster=0 --addresses={address}" ++
