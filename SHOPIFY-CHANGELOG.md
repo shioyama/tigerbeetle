@@ -3,6 +3,20 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### CI
+
+- Check that the release date is present in the changelog entry
+- Check that base version matches the latest upstream version
+
+### Packaging
+
+- Removed redundant `-Dgit-commit` from build commands (`build.zig` defaults
+  to `git rev-parse HEAD`)
+- Go client tarball now only includes `x86_64-linux` native lib and Go source
+  files, saving ~21MB
+
 ## TigerBeetle 0.16.78-shopify3
 
 Released: 2026-04-15
