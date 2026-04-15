@@ -29,26 +29,60 @@ steps:
 
   - wait
 
-  - label: ':package: Build and publish release'
+  - label: ':tiger: Build TigerBeetle'
     timeout: 30m
     branches: "0.*-shopify*"
+    git:
+      history: shallow
     cache:
       - path: .zig-install
         digest:
           - zig/download.sh
         upload: false
     run:
-      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
+      - mkdir -p artifacts && tar czf artifacts/go-client.tar.gz -C src/clients/go .
+    artifact_paths:
+      - zig-out/dist/tigerbeetle/*.zip
+      - artifacts/*.tar.gz
+
+  - label: ':camera: Build tb-snapshot'
+    timeout: 15m
+    branches: "0.*-shopify*"
+    git:
+      history: shallow
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+    run:
       - (cd tb-snapshot && ../.zig-install/zig build -Dtarget=x86_64-linux -Dconfig-release="${BUILDKITE_BRANCH%%-shopify*}" -Dconfig-release-client-min=0.16.4)
+    artifact_paths:
+      - tb-snapshot/zig-out/bin/tb-*
+
+  - wait
+
+  - label: ':package: Package and publish'
+    timeout: 10m
+    branches: "0.*-shopify*"
+    import_artifacts:
+      - pattern: tigerbeetle-x86_64-linux.zip
+        into: zig-out/dist/tigerbeetle
+      - pattern: go-client.tar.gz
+        into: artifacts
+      - pattern: tb-snapshot
+        into: tb-snapshot/zig-out/bin
+    run:
       - |
         VERSION=$BUILDKITE_BRANCH
         PKG=tigerbeetle_${VERSION}_amd64
-        mkdir -p deb-pkg/${PKG}/DEBIAN deb-pkg/${PKG}/usr/bin
+        mkdir -p deb-pkg/${PKG}/DEBIAN deb-pkg/${PKG}/usr/bin deb-pkg/${PKG}/usr/share/tigerbeetle/go-client
         unzip zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip -d deb-pkg/${PKG}/usr/bin/
         chmod 755 deb-pkg/${PKG}/usr/bin/tigerbeetle
         cp tb-snapshot/zig-out/bin/tb-snapshot deb-pkg/${PKG}/usr/bin/
         chmod 755 deb-pkg/${PKG}/usr/bin/tb-snapshot
+        tar xzf artifacts/go-client.tar.gz -C deb-pkg/${PKG}/usr/share/tigerbeetle/go-client/
         cat > deb-pkg/${PKG}/DEBIAN/control <<CTRL
         Package: tigerbeetle
         Version: ${VERSION}
