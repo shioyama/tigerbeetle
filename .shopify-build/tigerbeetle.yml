@@ -15,14 +15,6 @@ containers:
           - golang-go
 
 steps:
-  - label: ':memo: Check fork commits'
-    if: build.pull_request.id != null
-    timeout: 2m
-    git:
-      history: shallow
-    run:
-      - bash .shopify-build/scripts/check-fork-commits.sh
-
   - label: ':arrow_down: Download Zig'
     timeout: 5m
     cache:
@@ -36,33 +28,36 @@ steps:
 
   - label: ':test_tube: Tests'
     timeout: 10m
+    git:
+      history: full
     cache:
       - path: .zig-install
         digest:
           - zig/download.sh
         upload: false
     run:
-      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" test
   - label: ':bug: Fuzz'
     timeout: 10m
+    git:
+      history: shallow
     cache:
       - path: .zig-install
         digest:
           - zig/download.sh
         upload: false
     run:
-      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" fuzz -- smoke
   - label: ':electric_plug: Client tests'
     timeout: 10m
+    git:
+      history: shallow
     cache:
       - path: .zig-install
         digest:
           - zig/download.sh
         upload: false
     run:
-      - git init && git config user.email ci@shopify.com && git config user.name CI && git add -A && git commit -m ci
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" vortex:build
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:go
       - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:c:sample

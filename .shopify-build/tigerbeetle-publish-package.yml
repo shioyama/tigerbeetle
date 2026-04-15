@@ -22,11 +22,6 @@ steps:
     run:
       - sh .shopify-build/install-zig.sh
 
-  - label: ':memo: No unreleased patches'
-    timeout: 1m
-    run:
-      - bash .shopify-build/scripts/check-release-ready.sh
-
   - wait
 
   - label: ':tiger: Build TigerBeetle'

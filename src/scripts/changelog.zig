@@ -302,3 +302,171 @@ test "current changelog" {
     var it = ChangelogIterator.init(changelog_text);
     while (it.next_changelog()) |_| {}
 }
+
+// [shopify] Validate SHOPIFY-CHANGELOG.md for release readiness.
+pub fn validateShopifyRelease(
+    shell: *Shell,
+    release_version: []const u8,
+) !void {
+    const text = try shell.project_root.readFileAlloc(
+        shell.arena.allocator(),
+        "SHOPIFY-CHANGELOG.md",
+        changelog_bytes_max,
+    );
+    checkShopifyChangelog(text, release_version) catch |err| {
+        switch (err) {
+            error.UnreleasedChangelog => log.err(
+                "SHOPIFY-CHANGELOG.md has an unreleased entry",
+                .{},
+            ),
+            error.MissingChangelogEntry => log.err(
+                "no entry in SHOPIFY-CHANGELOG.md for {s}",
+                .{release_version},
+            ),
+            error.VersionExceedsRelease => log.err(
+                "SHOPIFY-CHANGELOG.md has a version exceeding {s}",
+                .{release_version},
+            ),
+            error.InvalidVersion => log.err(
+                "SHOPIFY-CHANGELOG.md has an unparseable version",
+                .{},
+            ),
+        }
+        return err;
+    };
+    log.info("SHOPIFY-CHANGELOG.md release check passed", .{});
+}
+
+fn checkShopifyChangelog(
+    text: []const u8,
+    release_version: []const u8,
+) error{
+    UnreleasedChangelog,
+    MissingChangelogEntry,
+    VersionExceedsRelease,
+    InvalidVersion,
+}!void {
+    const release_ord = parseShopifyVersion(release_version) orelse
+        return error.InvalidVersion;
+
+    var has_match = false;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "## ")) continue;
+
+        if (std.mem.indexOf(u8, line, "unreleased") != null) {
+            return error.UnreleasedChangelog;
+        }
+
+        const version_string = stdx.cut_prefix(
+            line,
+            "## TigerBeetle ",
+        ) orelse continue;
+
+        if (std.mem.eql(u8, version_string, release_version)) {
+            has_match = true;
+            continue;
+        }
+
+        const entry_ord = parseShopifyVersion(version_string) orelse
+            return error.InvalidVersion;
+        if (entry_ord > release_ord) {
+            return error.VersionExceedsRelease;
+        }
+    }
+
+    if (!has_match) return error.MissingChangelogEntry;
+}
+
+// Parses "X.Y.Z-shopifyN" into a comparable u64.
+fn parseShopifyVersion(version: []const u8) ?u64 {
+    const base, const suffix = stdx.cut(version, "-shopify") orelse
+        return null;
+    const triple = ReleaseTriple.parse(base) catch return null;
+    const n = std.fmt.parseUnsigned(u16, suffix, 10) catch
+        return null;
+    // Pack into u64: major(16) | minor(8) | patch(8) | n(16)
+    return @as(u64, triple.major) << 32 |
+        @as(u64, triple.minor) << 24 |
+        @as(u64, triple.patch) << 16 |
+        @as(u64, n);
+}
+
+test "shopify changelog" {
+    const allocator = std.testing.allocator;
+
+    const text = try std.fs.cwd().readFileAlloc(
+        allocator,
+        "./SHOPIFY-CHANGELOG.md",
+        changelog_bytes_max,
+    );
+    defer allocator.free(text);
+
+    // Verify at least one ## TigerBeetle header exists.
+    try std.testing.expect(
+        std.mem.indexOf(u8, text, "## TigerBeetle ") != null,
+    );
+}
+
+test "shopify changelog release validation" {
+    const valid =
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle 0.16.78-shopify3
+        \\
+        \\Released: 2026-04-15
+        \\
+        \\### Patches
+        \\
+        \\- some change
+        \\
+        \\## TigerBeetle 0.16.78-shopify2
+        \\
+        \\Released: 2026-04-14
+        \\
+        \\### Patches
+        \\
+        \\- another change
+    ;
+
+    // Matching version passes (highest version in changelog).
+    try checkShopifyChangelog(valid, "0.16.78-shopify3");
+
+    // Matching version but a newer entry exists — fails.
+    try std.testing.expectError(
+        error.VersionExceedsRelease,
+        checkShopifyChangelog(valid, "0.16.78-shopify2"),
+    );
+
+    // Missing version fails.
+    try std.testing.expectError(
+        error.MissingChangelogEntry,
+        checkShopifyChangelog(valid, "0.16.78-shopify4"),
+    );
+
+    // Version exceeds release fails.
+    try std.testing.expectError(
+        error.VersionExceedsRelease,
+        checkShopifyChangelog(valid, "0.16.78-shopify1"),
+    );
+
+    // Unreleased entry fails.
+    const with_unreleased =
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle (unreleased)
+        \\
+        \\### Patches
+        \\
+        \\- wip
+        \\
+        \\## TigerBeetle 0.16.78-shopify2
+        \\
+        \\Released: 2026-04-14
+    ;
+
+    try std.testing.expectError(
+        error.UnreleasedChangelog,
+        checkShopifyChangelog(with_unreleased, "0.16.78-shopify3"),
+    );
+}

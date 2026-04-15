@@ -1276,8 +1276,116 @@ test "tidy changelog" {
             errors.add_tracking(changelog, line_index);
         }
     }
+
+    // [shopify] Apply the same formatting checks to SHOPIFY-CHANGELOG.md.
+    const shopify_changelog = try SourceFile.read("SHOPIFY-CHANGELOG.md", changelog_buffer);
+
+    var shopify_line_iterator = mem.splitScalar(u8, shopify_changelog.text, '\n');
+    var shopify_line_index: usize = 0;
+    while (shopify_line_iterator.next()) |line| : (shopify_line_index += 1) {
+        if (std.mem.endsWith(u8, line, " ")) {
+            errors.add_trailing_whitespace(shopify_changelog, shopify_line_index);
+        }
+        const line_length = tidy_line_length(line);
+        if (line_length > 100 and !tidy_line_link(line)) {
+            errors.add_long_line(shopify_changelog, shopify_line_index);
+        }
+
+        if (std.mem.indexOf(u8, line, "?si=") != null) {
+            errors.add_tracking(shopify_changelog, shopify_line_index);
+        }
+    }
+
     if (errors.count > 0) return error.Untidy;
     assert(errors.count == 0);
+}
+
+test "tidy shopify fork" {
+    const allocator = std.testing.allocator;
+    const shell = try Shell.create(allocator);
+    defer shell.destroy();
+
+    // These checks require a PR context (base branch to diff against).
+    const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse return;
+
+    shell.exec("git fetch origin {base_branch}", .{ .base_branch = base_branch }) catch {
+        std.debug.print(
+            "warning: could not fetch base branch '{s}', skipping\n",
+            .{base_branch},
+        );
+        return;
+    };
+
+    // Check 1: All PR commits must be prefixed with [shopify].
+    {
+        const log_output = try shell.exec_stdout("git log --format=%s FETCH_HEAD..HEAD", .{});
+        var has_bad_commits = false;
+        var lines = mem.splitScalar(u8, log_output, '\n');
+        while (lines.next()) |subject| {
+            if (subject.len == 0) continue;
+            if (!mem.startsWith(u8, subject, "[shopify]")) {
+                std.debug.print("error: commit missing [shopify] prefix: {s}\n", .{subject});
+                has_bad_commits = true;
+            }
+        }
+        if (has_bad_commits) return error.BadCommitPrefix;
+    }
+
+    // Check 2: If non-test src/ files changed, SHOPIFY-CHANGELOG.md must be updated.
+    {
+        const diff_output = try shell.exec_stdout("git diff --name-only FETCH_HEAD HEAD", .{});
+        var has_src_changes = false;
+        var changelog_changed = false;
+        var lines = mem.splitScalar(u8, diff_output, '\n');
+        while (lines.next()) |path| {
+            if (path.len == 0) continue;
+            if (mem.eql(u8, path, "SHOPIFY-CHANGELOG.md")) {
+                changelog_changed = true;
+                continue;
+            }
+            if (mem.startsWith(u8, path, "src/") and !isTestFile(path)) {
+                has_src_changes = true;
+            }
+        }
+        if (has_src_changes and !changelog_changed) {
+            std.debug.print(
+                "error: non-test src/ files changed but " ++
+                    "SHOPIFY-CHANGELOG.md was not updated\n",
+                .{},
+            );
+            return error.ChangelogNotUpdated;
+        }
+    }
+}
+
+fn isTestFile(path: []const u8) bool {
+    const test_dir_prefixes = [_][]const u8{
+        "src/testing/",
+        "src/stdx/testing/",
+    };
+    for (test_dir_prefixes) |prefix| {
+        if (mem.startsWith(u8, path, prefix)) return true;
+    }
+
+    const basename = std.fs.path.basename(path);
+    const test_patterns = [_][]const u8{
+        "_test.",
+        "_tests.",
+        "_fuzz.",
+        "fuzz_tests.",
+    };
+    for (test_patterns) |pattern| {
+        if (mem.indexOf(u8, basename, pattern) != null) return true;
+    }
+
+    if (mem.eql(u8, basename, "tidy.zig")) return true;
+
+    // Check for paths containing /test.*, /tests/, /src/test/
+    const dir = std.fs.path.dirname(path) orelse "";
+    if (mem.endsWith(u8, dir, "/tests") or mem.endsWith(u8, dir, "/src/test")) return true;
+    if (mem.startsWith(u8, basename, "test.")) return true;
+
+    return false;
 }
 
 test "tidy no large blobs" {
@@ -1288,9 +1396,6 @@ test "tidy no large blobs" {
     // Run `git rev-list | git cat-file` to find large blobs. This is better than looking at the
     // files in the working tree, because it catches the cases where a large file is "removed" by
     // reverting the commit.
-    //
-    // Zig's std doesn't provide a cross platform abstraction for piping two commands together, so
-    // we begrudgingly pass the data through this intermediary process.
     const shallow = try shell.exec_stdout("git rev-parse --is-shallow-repository", .{});
     if (!std.mem.eql(u8, shallow, "false")) {
         return error.ShallowRepository;
@@ -1330,8 +1435,6 @@ test "tidy unix permissions" {
         "zig/download.sh",
         ".github/ci/test_aof.sh",
         "src/scripts/cfo_supervisor.sh",
-        ".shopify-build/scripts/check-fork-commits.sh",
-        ".shopify-build/scripts/check-release-ready.sh",
     };
 
     const allocator = std.testing.allocator;
@@ -1397,8 +1500,6 @@ test "tidy extensions" {
         .{".github/ci/test_aof.sh"},
         .{".shopify-build/VERSION"},
         .{".shopify-build/install-zig.sh"},
-        .{".shopify-build/scripts/check-fork-commits.sh"},
-        .{".shopify-build/scripts/check-release-ready.sh"},
         .{"src/clients/python/pyproject.toml"},
         .{"src/clients/python/src/tigerbeetle/py.typed"},
     });
