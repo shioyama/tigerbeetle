@@ -36,7 +36,7 @@ steps:
           - zig/download.sh
         upload: false
     run:
-      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" test
+      - ./.zig-install/zig build test
   - label: ':bug: Fuzz'
     timeout: 10m
     git:
@@ -47,7 +47,7 @@ steps:
           - zig/download.sh
         upload: false
     run:
-      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" fuzz -- smoke
+      - ./.zig-install/zig build fuzz -- smoke
   - label: ':electric_plug: Client tests'
     timeout: 10m
     git:
@@ -58,9 +58,9 @@ steps:
           - zig/download.sh
         upload: false
     run:
-      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" vortex:build
-      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:go
-      - ./.zig-install/zig build -Dgit-commit="$BUILDKITE_COMMIT" clients:c:sample
+      - ./.zig-install/zig build vortex:build
+      - ./.zig-install/zig build clients:go
+      - ./.zig-install/zig build clients:c:sample
   - label: ':camera: tb-snapshot'
     timeout: 15m
     only:
