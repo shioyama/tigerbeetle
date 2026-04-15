@@ -122,10 +122,11 @@ jobs:
         with: { node-version: "${{ matrix.language_version }}" }
 
       - if: matrix.language == 'python'
-        uses: actions/setup-python@v4
+        uses: shop/setup-python-action@main
         with: { python-version: "${{ matrix.language_version }}" }
       - if: matrix.language == 'python'
-        run: pip install build hatch pytest 'mypy<=1.18.2'
+        # TODO: add build hatch pytest mypy as dev dependencies via uv
+        run: uv venv && uv pip install build hatch pytest 'mypy<=1.18.2'
 
       - run: ./zig/download.ps1 && ./zig/zig build ci -- ${{ matrix.language }}
 

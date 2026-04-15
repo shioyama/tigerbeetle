@@ -49,10 +49,11 @@ jobs:
           node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
 
-      - uses: actions/setup-python@v4
+      - uses: shop/setup-python-action@main
         with:
           python-version: 3.13
-      - run: pip install build twine
+      # TODO: add build twine as dev dependencies via uv
+      - run: uv venv && uv pip install build twine
 
       - run: ./zig/download.sh
       - run: ./zig/zig build scripts -- release --build --publish --sha=${{ github.sha }}
