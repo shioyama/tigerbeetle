@@ -19,6 +19,8 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 - Added `shopify-release` script (`zig build scripts -- shopify-release`) that
   automates version detection, changelog update, branch creation, and PR opening.
   A Shopify Build step runs a dry-run release build on `release/*` branches.
+- Fixed release script to strip `release/` prefix from branch name before
+  changelog validation.
 
 ## TigerBeetle 0.16.78-shopify3
 
