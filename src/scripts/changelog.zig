@@ -418,7 +418,7 @@ fn checkShopifyChangelog(
 }
 
 // Parses "X.Y.Z-shopifyN" into a comparable u64.
-fn parseShopifyVersion(version: []const u8) ?u64 {
+pub fn parseShopifyVersion(version: []const u8) ?u64 {
     const base, const suffix = stdx.cut(version, "-shopify") orelse
         return null;
     const triple = ReleaseTriple.parse(base) catch return null;

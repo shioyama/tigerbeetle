@@ -16,6 +16,9 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   to `git rev-parse HEAD`)
 - Go client tarball now only includes `x86_64-linux` native lib and Go source
   files, saving ~21MB
+- Added `shopify-release` script (`zig build scripts -- shopify-release`) that
+  automates version detection, changelog update, branch creation, and PR opening.
+  A Shopify Build step runs a dry-run release build on `release/*` branches.
 
 ## TigerBeetle 0.16.78-shopify3
 
