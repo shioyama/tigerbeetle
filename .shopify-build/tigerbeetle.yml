@@ -28,6 +28,8 @@ steps:
 
   - label: ':test_tube: Tests'
     timeout: 10m
+    env:
+      SHOPIFY_BUILD_MEMORY_LIMIT: 8g
     git:
       history: full
     cache:
