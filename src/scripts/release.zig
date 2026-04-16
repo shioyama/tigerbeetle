@@ -62,7 +62,8 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     _ = gpa;
 
     // [shopify] Validate SHOPIFY-CHANGELOG.md and upstream version match.
-    if (shell.env_get_option("BUILDKITE_BRANCH")) |release_version| {
+    if (shell.env_get_option("BUILDKITE_BRANCH")) |branch| {
+        const release_version = stdx.cut_prefix(branch, "release/") orelse branch;
         if (std.mem.indexOf(u8, release_version, "shopify") != null) {
             try changelog.validateShopifyRelease(shell, release_version);
         }
