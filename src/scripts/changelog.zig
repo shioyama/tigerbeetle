@@ -303,17 +303,20 @@ test "current changelog" {
     while (it.next_changelog()) |_| {}
 }
 
-// [shopify] Validate SHOPIFY-CHANGELOG.md for release readiness.
+// [shopify] Validate SHOPIFY-CHANGELOG.md for release readiness
+// and check that the release tag base matches CHANGELOG.md.
 pub fn validateShopifyRelease(
     shell: *Shell,
     release_version: []const u8,
 ) !void {
-    const text = try shell.project_root.readFileAlloc(
-        shell.arena.allocator(),
+    const allocator = shell.arena.allocator();
+
+    const shopify_text = try shell.project_root.readFileAlloc(
+        allocator,
         "SHOPIFY-CHANGELOG.md",
         changelog_bytes_max,
     );
-    checkShopifyChangelog(text, release_version) catch |err| {
+    checkShopifyChangelog(shopify_text, release_version) catch |err| {
         switch (err) {
             error.UnreleasedChangelog => log.err(
                 "SHOPIFY-CHANGELOG.md has an unreleased entry",
@@ -321,6 +324,10 @@ pub fn validateShopifyRelease(
             ),
             error.MissingChangelogEntry => log.err(
                 "no entry in SHOPIFY-CHANGELOG.md for {s}",
+                .{release_version},
+            ),
+            error.MissingReleaseDate => log.err(
+                "SHOPIFY-CHANGELOG.md entry for {s} is missing a \"Released:\" date",
                 .{release_version},
             ),
             error.VersionExceedsRelease => log.err(
@@ -335,6 +342,31 @@ pub fn validateShopifyRelease(
         return err;
     };
     log.info("SHOPIFY-CHANGELOG.md release check passed", .{});
+
+    const upstream_text = try shell.project_root.readFileAlloc(
+        allocator,
+        "CHANGELOG.md",
+        changelog_bytes_max,
+    );
+    var it = ChangelogIterator.init(upstream_text);
+    const upstream_release = while (it.next_changelog()) |entry| {
+        if (entry.release != null) break entry.release.?;
+    } else {
+        log.err("no release found in CHANGELOG.md", .{});
+        return error.MissingChangelogEntry;
+    };
+    const upstream_version = try shell.fmt(
+        "{[major]}.{[minor]}.{[patch]}",
+        upstream_release.triple(),
+    );
+    checkShopifyReleaseBase(release_version, upstream_version) catch {
+        log.err(
+            "release base version does not match CHANGELOG.md version \"{s}\"",
+            .{upstream_version},
+        );
+        return error.VersionMismatch;
+    };
+    log.info("release base version matches CHANGELOG.md", .{});
 }
 
 fn checkShopifyChangelog(
@@ -343,6 +375,7 @@ fn checkShopifyChangelog(
 ) error{
     UnreleasedChangelog,
     MissingChangelogEntry,
+    MissingReleaseDate,
     VersionExceedsRelease,
     InvalidVersion,
 }!void {
@@ -364,6 +397,12 @@ fn checkShopifyChangelog(
         ) orelse continue;
 
         if (std.mem.eql(u8, version_string, release_version)) {
+            // Check for a "Released:" line after the header.
+            const has_date = while (lines.next()) |next_line| {
+                if (next_line.len == 0) continue;
+                break std.mem.startsWith(u8, next_line, "Released:");
+            } else false;
+            if (!has_date) return error.MissingReleaseDate;
             has_match = true;
             continue;
         }
@@ -390,6 +429,17 @@ fn parseShopifyVersion(version: []const u8) ?u64 {
         @as(u64, triple.minor) << 24 |
         @as(u64, triple.patch) << 16 |
         @as(u64, n);
+}
+
+// [shopify] Check that a release version's base matches the upstream CHANGELOG version.
+pub fn checkShopifyReleaseBase(
+    release_version: []const u8,
+    changelog_version: []const u8,
+) error{VersionMismatch}!void {
+    const base, _ = stdx.cut(release_version, "-shopify") orelse return;
+    if (!std.mem.eql(u8, base, changelog_version)) {
+        return error.VersionMismatch;
+    }
 }
 
 test "shopify changelog" {
@@ -469,4 +519,34 @@ test "shopify changelog release validation" {
         error.UnreleasedChangelog,
         checkShopifyChangelog(with_unreleased, "0.16.78-shopify3"),
     );
+
+    // Missing release date fails.
+    const no_date =
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle 0.16.78-shopify3
+        \\
+        \\### Patches
+        \\
+        \\- some change
+    ;
+
+    try std.testing.expectError(
+        error.MissingReleaseDate,
+        checkShopifyChangelog(no_date, "0.16.78-shopify3"),
+    );
+}
+
+test "shopify release base version check" {
+    // Base matches upstream — passes.
+    try checkShopifyReleaseBase("0.16.78-shopify3", "0.16.78");
+
+    // Base doesn't match upstream — fails.
+    try std.testing.expectError(
+        error.VersionMismatch,
+        checkShopifyReleaseBase("0.16.79-shopify1", "0.16.78"),
+    );
+
+    // Non-shopify version — no-op (passes).
+    try checkShopifyReleaseBase("0.16.78", "0.16.78");
 }
