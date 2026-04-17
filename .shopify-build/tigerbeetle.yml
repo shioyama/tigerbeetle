@@ -74,7 +74,7 @@ steps:
           - zig/download.sh
         upload: false
     run:
-      - ./.zig-install/zig build scripts -- release --build --sha=$BUILDKITE_COMMIT --timestamp=0
+      - ./.zig-install/zig build scripts -- release --build --sha=$BUILDKITE_COMMIT --timestamp=$(date +%s)
 
   - label: ':camera: tb-snapshot'
     timeout: 15m
