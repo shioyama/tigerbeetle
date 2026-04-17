@@ -303,6 +303,31 @@ test "current changelog" {
     while (it.next_changelog()) |_| {}
 }
 
+// [shopify] Read the latest release version (`X.Y.Z-shopifyN`) from
+// SHOPIFY-CHANGELOG.md (the top `## TigerBeetle ...` header). Fails if the
+// top entry is marked unreleased, so the release script refuses to build a
+// fork release from a changelog that hasn't been finalized.
+pub fn shopifyLatestVersion(shell: *Shell) ![]const u8 {
+    const allocator = shell.arena.allocator();
+    const text = try shell.project_root.readFileAlloc(
+        allocator,
+        "SHOPIFY-CHANGELOG.md",
+        changelog_bytes_max,
+    );
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "## ")) continue;
+        if (std.mem.indexOf(u8, line, "unreleased") != null) {
+            log.err("SHOPIFY-CHANGELOG.md has an unreleased entry", .{});
+            return error.UnreleasedChangelog;
+        }
+        const version = stdx.cut_prefix(line, "## TigerBeetle ") orelse continue;
+        return try allocator.dupe(u8, version);
+    }
+    log.err("no `## TigerBeetle <version>` header found in SHOPIFY-CHANGELOG.md", .{});
+    return error.MissingChangelogEntry;
+}
+
 // [shopify] Validate SHOPIFY-CHANGELOG.md for release readiness
 // and check that the release tag base matches CHANGELOG.md.
 pub fn validateShopifyRelease(

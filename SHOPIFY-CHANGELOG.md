@@ -3,6 +3,14 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Packaging
+
+- Moved release orchestration from shopify-build YAML into `release.zig`.
+  The dry-run CI step and the actual publish step now run the same Zig
+  code path, differing only in the final publish command.
+
 ## TigerBeetle 0.16.78-shopify4
 
 Released: 2026-04-17
