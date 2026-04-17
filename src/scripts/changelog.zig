@@ -303,6 +303,47 @@ test "current changelog" {
     while (it.next_changelog()) |_| {}
 }
 
+// [shopify] Read the latest release version (`X.Y.Z-shopifyN`) from
+// SHOPIFY-CHANGELOG.md (the top `## TigerBeetle ...` header). Fails if the
+// top entry is marked unreleased, so the release script refuses to build a
+// fork release from a changelog that hasn't been finalized.
+pub fn shopifyLatestVersion(shell: *Shell) ![]const u8 {
+    const allocator = shell.arena.allocator();
+    const text = try shell.project_root.readFileAlloc(
+        allocator,
+        "SHOPIFY-CHANGELOG.md",
+        changelog_bytes_max,
+    );
+    return extractShopifyLatestVersion(text) catch |err| {
+        switch (err) {
+            error.UnreleasedChangelog => log.err(
+                "SHOPIFY-CHANGELOG.md has an unreleased entry",
+                .{},
+            ),
+            error.MissingChangelogEntry => log.err(
+                "no `## TigerBeetle <version>` header found in SHOPIFY-CHANGELOG.md",
+                .{},
+            ),
+        }
+        return err;
+    };
+}
+
+fn extractShopifyLatestVersion(text: []const u8) error{
+    UnreleasedChangelog,
+    MissingChangelogEntry,
+}![]const u8 {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "## ")) continue;
+        if (std.mem.indexOf(u8, line, "unreleased") != null) {
+            return error.UnreleasedChangelog;
+        }
+        return stdx.cut_prefix(line, "## TigerBeetle ") orelse continue;
+    }
+    return error.MissingChangelogEntry;
+}
+
 // [shopify] Validate SHOPIFY-CHANGELOG.md for release readiness
 // and check that the release tag base matches CHANGELOG.md.
 pub fn validateShopifyRelease(
@@ -455,6 +496,59 @@ test "shopify changelog" {
     // Verify at least one ## TigerBeetle header exists.
     try std.testing.expect(
         std.mem.indexOf(u8, text, "## TigerBeetle ") != null,
+    );
+}
+
+test "shopify latest version extraction" {
+    const valid =
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle 0.16.78-shopify3
+        \\
+        \\Released: 2026-04-15
+        \\
+        \\## TigerBeetle 0.16.78-shopify2
+        \\
+        \\Released: 2026-04-14
+    ;
+    try std.testing.expectEqualStrings(
+        "0.16.78-shopify3",
+        try extractShopifyLatestVersion(valid),
+    );
+
+    const with_unreleased =
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle (unreleased)
+        \\
+        \\## TigerBeetle 0.16.78-shopify2
+    ;
+    try std.testing.expectError(
+        error.UnreleasedChangelog,
+        extractShopifyLatestVersion(with_unreleased),
+    );
+
+    const no_entries =
+        \\# Shopify Changelog
+        \\
+        \\Some intro text with no version headers.
+    ;
+    try std.testing.expectError(
+        error.MissingChangelogEntry,
+        extractShopifyLatestVersion(no_entries),
+    );
+
+    // Non-TigerBeetle `## ` headers are skipped.
+    const skip_unrelated =
+        \\# Shopify Changelog
+        \\
+        \\## Introduction
+        \\
+        \\## TigerBeetle 0.16.78-shopify3
+    ;
+    try std.testing.expectEqualStrings(
+        "0.16.78-shopify3",
+        try extractShopifyLatestVersion(skip_unrelated),
     );
 }
 

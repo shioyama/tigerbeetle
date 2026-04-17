@@ -56,18 +56,18 @@ const VersionInfo = struct {
     tag_multiversion: []const u8,
     commit_sha: []const u8,
     commit_timestamp: stdx.InstantUnix,
+    // [shopify] Full shopify release string (e.g. "0.16.78-shopify4"), sourced
+    // from SHOPIFY-CHANGELOG.md. Used for the .deb package version.
+    shopify_version: []const u8,
 };
 
 pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     _ = gpa;
 
-    // [shopify] Validate SHOPIFY-CHANGELOG.md and upstream version match.
-    if (shell.env_get_option("BUILDKITE_BRANCH")) |branch| {
-        const release_version = stdx.cut_prefix(branch, "release/") orelse branch;
-        if (std.mem.indexOf(u8, release_version, "shopify") != null) {
-            try changelog.validateShopifyRelease(shell, release_version);
-        }
-    }
+    // [shopify] Use the latest SHOPIFY-CHANGELOG.md entry as the source of truth
+    // for the fork's version, and validate the entry + upstream version match.
+    const shopify_version = try changelog.shopifyLatestVersion(shell);
+    try changelog.validateShopifyRelease(shell, shopify_version);
 
     const languages = if (cli_args.language) |language|
         LanguageSet.initOne(language)
@@ -148,6 +148,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
         ),
         .commit_sha = cli_args.sha,
         .commit_timestamp = stdx.InstantUnix.from_timestamp_s(cli_args.timestamp),
+        .shopify_version = shopify_version,
     };
 
     // Typically GitHub tag matches the release triple in the binary exactly. For exceptional
@@ -234,6 +235,145 @@ fn build(shell: *Shell, languages: LanguageSet, info: VersionInfo, devhub: bool)
         // Currently disabled.
         _ = &build_rust;
     }
+
+    // [shopify] Build fork-specific artifacts: tb-snapshot binary and the
+    // .deb package published to Cloudsmith.
+    var dist_dir_shopify = try dist_dir.makeOpenPath("shopify", .{});
+    defer dist_dir_shopify.close();
+
+    try build_tb_snapshot(shell, info, dist_dir_shopify);
+    try build_deb_package(shell, info);
+
+    // [shopify] Postcondition: if the build steps above returned successfully,
+    // their artifacts must exist. A missing file here means a build step
+    // silently skipped its output (e.g. a renamed path), which the `release/*`
+    // validate pipeline has to catch — publish would otherwise fail at upload.
+    const expected_artifacts = [_][]const u8{
+        "zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip",
+        "zig-out/dist/shopify/tb-snapshot",
+        try shell.fmt(
+            "zig-out/dist/shopify/tigerbeetle_{s}_amd64.deb",
+            .{info.shopify_version},
+        ),
+    };
+    for (expected_artifacts) |path| {
+        shell.project_root.access(path, .{}) catch |err| {
+            std.debug.panic(
+                "missing release artifact: {s} ({s})",
+                .{ path, @errorName(err) },
+            );
+        };
+    }
+}
+
+fn build_tb_snapshot(shell: *Shell, info: VersionInfo, dist_dir: std.fs.Dir) !void {
+    var section = try shell.open_section("build tb-snapshot");
+    defer section.close();
+
+    try shell.pushd("./tb-snapshot");
+    defer shell.popd();
+
+    try shell.exec_zig(
+        \\build
+        \\    -Dtarget={target}
+        \\    -Dconfig-release={release_triple}
+        \\    -Dconfig-release-client-min={release_triple_client_min}
+    , .{
+        .target = "x86_64-linux",
+        .release_triple = info.release_triple,
+        .release_triple_client_min = info.release_triple_client_min,
+    });
+
+    try Shell.copy_path(
+        shell.cwd,
+        "zig-out/bin/tb-snapshot",
+        dist_dir,
+        "tb-snapshot",
+    );
+}
+
+// Assembles a Debian package containing the tigerbeetle binary, tb-snapshot, and
+// a slim go-client (`x86_64-linux` lib + Go source), matching the artifact layout
+// published to Cloudsmith.
+fn build_deb_package(shell: *Shell, info: VersionInfo) !void {
+    var section = try shell.open_section("build deb package");
+    defer section.close();
+
+    const pkg_dir = try shell.fmt(
+        "zig-out/dist/shopify/deb-staging/tigerbeetle_{s}_amd64",
+        .{info.shopify_version},
+    );
+
+    try shell.project_root.makePath(try shell.fmt("{s}/DEBIAN", .{pkg_dir}));
+    var bin_dir = try shell.project_root.makeOpenPath(
+        try shell.fmt("{s}/usr/bin", .{pkg_dir}),
+        .{},
+    );
+    defer bin_dir.close();
+
+    try shell.project_root.makePath(
+        try shell.fmt("{s}/usr/share/tigerbeetle/go-client", .{pkg_dir}),
+    );
+
+    const control = try shell.fmt(
+        \\Package: tigerbeetle
+        \\Version: {s}
+        \\Architecture: amd64
+        \\Maintainer: Shopify <infrastructure@shopify.com>
+        \\Description: TigerBeetle financial transactions database
+        \\
+    , .{info.shopify_version});
+    try shell.project_root.writeFile(.{
+        .sub_path = try shell.fmt("{s}/DEBIAN/control", .{pkg_dir}),
+        .data = control,
+    });
+
+    {
+        const zip_file = try shell.project_root.openFile(
+            "zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip",
+            .{},
+        );
+        defer zip_file.close();
+
+        try std.zip.extract(bin_dir, zip_file.seekableStream(), .{});
+        // std.zip.extract doesn't preserve permissions.
+        const tigerbeetle_bin = try bin_dir.openFile("tigerbeetle", .{});
+        defer tigerbeetle_bin.close();
+
+        try tigerbeetle_bin.chmod(0o755);
+    }
+
+    try Shell.copy_path(
+        shell.project_root,
+        "zig-out/dist/shopify/tb-snapshot",
+        bin_dir,
+        "tb-snapshot",
+    );
+    const tb_snapshot_bin = try bin_dir.openFile("tb-snapshot", .{});
+    defer tb_snapshot_bin.close();
+
+    try tb_snapshot_bin.chmod(0o755);
+
+    // Slim go-client: x86_64-linux native lib only, plus the Go source files
+    // callers actually import. Layered via tar to preserve the `pkg/...`
+    // directory structure without one `cp` per entry.
+    const go_client_tarball = "zig-out/dist/shopify/go-client.tar.gz";
+    try shell.exec(
+        \\tar czf {tarball}
+        \\    -C src/clients/go
+        \\    go.mod go.sum tb_client.go
+        \\    pkg/types pkg/errors
+        \\    pkg/native/native.go pkg/native/tb_client.h pkg/native/libtb_client_x86_64-linux.a
+        \\    LICENSE
+    , .{ .tarball = go_client_tarball });
+    try shell.exec("tar xzf {tarball} -C {dest}", .{
+        .tarball = go_client_tarball,
+        .dest = try shell.fmt("{s}/usr/share/tigerbeetle/go-client/", .{pkg_dir}),
+    });
+
+    try shell.exec("dpkg-deb --build {staging} zig-out/dist/shopify/", .{
+        .staging = pkg_dir,
+    });
 }
 
 fn build_tigerbeetle(shell: *Shell, info: VersionInfo, dist_dir: std.fs.Dir) !void {

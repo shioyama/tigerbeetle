@@ -24,11 +24,11 @@ steps:
 
   - wait
 
-  - label: ':tiger: Build TigerBeetle'
+  - label: ':package: Build and publish'
     timeout: 30m
     branches: "0.*-shopify*"
     git:
-      history: shallow
+      history: full
     cache:
       - path: .zig-install
         digest:
@@ -36,57 +36,6 @@ steps:
         upload: false
     run:
       - ./.zig-install/zig build scripts -- release --build --sha="$BUILDKITE_COMMIT" --timestamp="$(date +%s)"
-      - mkdir -p artifacts && tar czf artifacts/go-client.tar.gz -C src/clients/go go.mod go.sum tb_client.go pkg/types pkg/errors pkg/native/native.go pkg/native/tb_client.h pkg/native/libtb_client_x86_64-linux.a LICENSE
-    artifact_paths:
-      - zig-out/dist/tigerbeetle/*.zip
-      - artifacts/*.tar.gz
-
-  - label: ':camera: Build tb-snapshot'
-    timeout: 15m
-    branches: "0.*-shopify*"
-    git:
-      history: shallow
-    cache:
-      - path: .zig-install
-        digest:
-          - zig/download.sh
-        upload: false
-    run:
-      - (cd tb-snapshot && ../.zig-install/zig build -Dtarget=x86_64-linux -Dconfig-release="${BUILDKITE_BRANCH%%-shopify*}" -Dconfig-release-client-min=0.16.4)
-    artifact_paths:
-      - tb-snapshot/zig-out/bin/tb-*
-
-  - wait
-
-  - label: ':package: Package and publish'
-    timeout: 10m
-    branches: "0.*-shopify*"
-    import_artifacts:
-      - pattern: tigerbeetle-x86_64-linux.zip
-        into: zig-out/dist/tigerbeetle
-      - pattern: go-client.tar.gz
-        into: artifacts
-      - pattern: tb-snapshot
-        into: tb-snapshot/zig-out/bin
-    run:
-      - |
-        VERSION=$BUILDKITE_BRANCH
-        PKG=tigerbeetle_${VERSION}_amd64
-        mkdir -p deb-pkg/${PKG}/DEBIAN deb-pkg/${PKG}/usr/bin deb-pkg/${PKG}/usr/share/tigerbeetle/go-client
-        unzip zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip -d deb-pkg/${PKG}/usr/bin/
-        chmod 755 deb-pkg/${PKG}/usr/bin/tigerbeetle
-        cp tb-snapshot/zig-out/bin/tb-snapshot deb-pkg/${PKG}/usr/bin/
-        chmod 755 deb-pkg/${PKG}/usr/bin/tb-snapshot
-        tar xzf artifacts/go-client.tar.gz -C deb-pkg/${PKG}/usr/share/tigerbeetle/go-client/
-        cat > deb-pkg/${PKG}/DEBIAN/control <<CTRL
-        Package: tigerbeetle
-        Version: ${VERSION}
-        Architecture: amd64
-        Maintainer: Shopify <infrastructure@shopify.com>
-        Description: TigerBeetle financial transactions database
-        CTRL
-        sed -i 's/^        //' deb-pkg/${PKG}/DEBIAN/control
-        dpkg-deb --build deb-pkg/${PKG} deb-pkg/
     publish:
       package:
         repository_name: 'public'
@@ -94,5 +43,5 @@ steps:
         distro_version: 'ubuntu/noble'
         fail_on_duplicate: false
         artifacts:
-          - path: deb-pkg
+          - path: zig-out/dist/shopify
             patterns: ['*.deb']
