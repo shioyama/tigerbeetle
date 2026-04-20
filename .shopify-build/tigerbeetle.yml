@@ -1,0 +1,68 @@
+# Shopify CI pipeline for TigerBeetle.
+
+containers:
+  default:
+    environment: ci
+    privileged: true
+    build:
+      from: ubuntu-24
+      type: ci
+      apt:
+        install:
+          - git
+          - curl
+          - xz-utils
+          - golang-go
+
+steps:
+  - label: ':arrow_down: Download Zig'
+    timeout: 5m
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+    run:
+      - sh .shopify-build/install-zig.sh
+
+  - wait
+
+  - label: ':test_tube: Tests'
+    timeout: 10m
+    env:
+      SHOPIFY_BUILD_MEMORY_LIMIT: 10g
+    git:
+      history: full
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+    run:
+      - sh .shopify-build/fetch-upstream-tags.sh
+      - ./.zig-install/zig build test
+  - label: ':bug: Fuzz'
+    timeout: 10m
+    git:
+      history: full
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+    run:
+      - sh .shopify-build/fetch-upstream-tags.sh
+      - ./.zig-install/zig build fuzz -- smoke
+  - label: ':electric_plug: Client tests'
+    timeout: 10m
+    git:
+      history: full
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+    run:
+      - sh .shopify-build/fetch-upstream-tags.sh
+      - ./.zig-install/zig build vortex:build
+      - ./.zig-install/zig build clients:go
+      - ./.zig-install/zig build clients:c:sample
