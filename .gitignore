@@ -14,3 +14,5 @@ tools/
 
 # Death to .DS_Store
 .DS_Store
+
+.claude/
