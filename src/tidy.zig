@@ -1395,6 +1395,10 @@ test "tidy extensions" {
         .{".github/ci/test_aof.sh"},
         .{"src/clients/python/pyproject.toml"},
         .{"src/clients/python/src/tigerbeetle/py.typed"},
+        // [shopify]
+        .{".shopify-build/VERSION"},
+        .{".shopify-build/fetch-upstream-tags.sh"},
+        .{".shopify-build/install-zig.sh"},
     });
 
     const allocator = std.testing.allocator;
