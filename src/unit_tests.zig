@@ -39,6 +39,7 @@ comptime {
     _ = @import("scripts/cfo.zig");
     _ = @import("scripts/changelog.zig");
     _ = @import("shell.zig");
+    _ = @import("shopify_tidy.zig");
     _ = @import("stack.zig");
     _ = @import("state_machine.zig");
     _ = @import("state_machine_fuzz.zig");
