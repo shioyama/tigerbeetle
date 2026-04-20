@@ -4,8 +4,8 @@
 //!   2. If any non-test `src/` file changed, `SHOPIFY-CHANGELOG.md` must be updated in
 //!      the same PR.
 //!
-//! Both checks require a PR context (base branch to diff against) and silently skip
-//! when `BUILDKITE_PULL_REQUEST_BASE_BRANCH` is not set (e.g. on main, locally).
+//! Both checks diff against `BUILDKITE_PULL_REQUEST_BASE_BRANCH` if set, and fall back
+//! to `main` otherwise so the checks exercise locally too.
 
 const std = @import("std");
 const mem = std.mem;
@@ -17,7 +17,7 @@ test "tidy shopify fork" {
     const shell = try Shell.create(allocator);
     defer shell.destroy();
 
-    const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse return;
+    const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse "main";
 
     shell.exec("git fetch origin {base_branch}", .{ .base_branch = base_branch }) catch {
         std.debug.print(
