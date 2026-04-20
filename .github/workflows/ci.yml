@@ -132,10 +132,10 @@ jobs:
         with: { node-version: "${{ matrix.language_version }}" }
 
       - if: matrix.language == 'python'
-        uses: actions/setup-python@v4
+        uses: shop/setup-python-action@main
         with: { python-version: "${{ matrix.language_version }}" }
       - if: matrix.language == 'python'
-        run: pip install build hatch pytest 'mypy<=1.18.2'
+        run: uv venv && uv pip install build hatch pytest 'mypy<=1.18.2'
 
       - uses: actions/cache@v5
         with:
