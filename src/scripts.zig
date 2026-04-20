@@ -21,6 +21,9 @@ const devhub = @import("./scripts/devhub.zig");
 const changelog = @import("./scripts/changelog.zig");
 const amqp = @import("./scripts/amqp.zig");
 
+// [shopify]
+const shopify_release = @import("./shopify/release.zig");
+
 pub fn log_fn(
     comptime message_level: std.log.Level,
     comptime scope: @Type(.enum_literal),
@@ -40,6 +43,9 @@ const CLIArgs = union(enum) {
     devhub: devhub.CLIArgs,
     changelog: void,
     amqp: amqp.CLIArgs,
+
+    // [shopify]
+    shopify: void,
 
     pub const help =
         \\Usage:
@@ -101,5 +107,8 @@ pub fn main() !void {
         .devhub => |args_devhub| try devhub.main(shell, gpa, args_devhub),
         .changelog => try changelog.main(shell, gpa),
         .amqp => |args_amqp| try amqp.main(shell, gpa, args_amqp),
+
+        // [shopify]
+        .shopify => try shopify_release.main(shell, gpa),
     }
 }

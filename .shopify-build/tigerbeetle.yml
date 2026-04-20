@@ -66,3 +66,16 @@ steps:
       - ./.zig-install/zig build vortex:build
       - ./.zig-install/zig build clients:go
       - ./.zig-install/zig build clients:c:sample
+  - label: ':package: Validate release build'
+    timeout: 30m
+    branches: 'release/*'
+    git:
+      history: full
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+    run:
+      - sh .shopify-build/fetch-upstream-tags.sh
+      - ./.zig-install/zig build scripts -- release --build --shopify --sha=$BUILDKITE_COMMIT

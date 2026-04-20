@@ -10,7 +10,7 @@
 const std = @import("std");
 const mem = std.mem;
 
-const Shell = @import("./shell.zig");
+const Shell = @import("../shell.zig");
 
 test "tidy shopify fork" {
     const allocator = std.testing.allocator;
@@ -90,7 +90,6 @@ fn is_test_file(path: []const u8) bool {
     }
 
     if (mem.eql(u8, basename, "tidy.zig")) return true;
-    if (mem.eql(u8, basename, "tidy_shopify.zig")) return true;
 
     const dir = std.fs.path.dirname(path) orelse "";
     if (mem.endsWith(u8, dir, "/tests") or mem.endsWith(u8, dir, "/src/test")) return true;
