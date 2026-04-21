@@ -25,6 +25,10 @@ const Shell = @import("../shell.zig");
 const multiversion = @import("../multiversion.zig");
 const changelog = @import("./changelog.zig");
 
+// [shopify]
+const shopify_changelog = @import("../shopify/changelog.zig");
+const shopify_release = @import("../shopify/release.zig");
+
 const MiB = stdx.MiB;
 
 const multiversion_binary_size_max = multiversion.multiversion_binary_size_max;
@@ -43,6 +47,10 @@ pub const CLIArgs = struct {
     no_changelog: bool = false,
     // Allow targeting only production x86_64 Linux, to speed up when invoked via devhub.
     devhub: bool = false,
+
+    // [shopify] Assemble fork artifacts (.deb) after the upstream build, and
+    // restrict language set to {zig, go} unless `--language` is explicit.
+    shopify: bool = false,
 };
 
 const VersionInfo = struct {
@@ -62,8 +70,18 @@ const VersionInfo = struct {
 pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     _ = gpa;
 
+    // [shopify] Validate and pin the fork version from SHOPIFY-CHANGELOG.md.
+    const shopify_version: ?[]const u8 = if (cli_args.shopify) blk: {
+        const v = try shopify_changelog.shopifyLatestVersion(shell);
+        try shopify_changelog.validateShopifyRelease(shell, v);
+        break :blk v;
+    } else null;
+
     const languages = if (cli_args.language) |language|
         LanguageSet.initOne(language)
+    else if (cli_args.shopify)
+        // [shopify] Fork releases only ship the linux binary + go client.
+        LanguageSet.initMany(&.{ .zig, .go })
     else
         LanguageSet.initFull();
 
@@ -164,6 +182,11 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
 
     if (cli_args.build) {
         try build(shell, languages, version_info, cli_args.devhub);
+
+        // [shopify] Assemble fork artifacts (.deb) from the dist tree.
+        if (cli_args.shopify) {
+            try shopify_release.build_artifacts(shell, shopify_version.?);
+        }
     }
 
     if (cli_args.publish) {

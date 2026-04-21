@@ -4,20 +4,20 @@
 //!   2. If any non-test `src/` file changed, `SHOPIFY-CHANGELOG.md` must be updated in
 //!      the same PR.
 //!
-//! Both checks require a PR context (base branch to diff against) and silently skip
-//! when `BUILDKITE_PULL_REQUEST_BASE_BRANCH` is not set (e.g. on main, locally).
+//! Both checks diff against `BUILDKITE_PULL_REQUEST_BASE_BRANCH` if set, and fall back
+//! to `main` otherwise so the checks exercise locally too.
 
 const std = @import("std");
 const mem = std.mem;
 
-const Shell = @import("./shell.zig");
+const Shell = @import("../shell.zig");
 
 test "tidy shopify fork" {
     const allocator = std.testing.allocator;
     const shell = try Shell.create(allocator);
     defer shell.destroy();
 
-    const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse return;
+    const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse "main";
 
     shell.exec("git fetch origin {base_branch}", .{ .base_branch = base_branch }) catch {
         std.debug.print(
@@ -90,7 +90,6 @@ fn is_test_file(path: []const u8) bool {
     }
 
     if (mem.eql(u8, basename, "tidy.zig")) return true;
-    if (mem.eql(u8, basename, "tidy_shopify.zig")) return true;
 
     const dir = std.fs.path.dirname(path) orelse "";
     if (mem.endsWith(u8, dir, "/tests") or mem.endsWith(u8, dir, "/src/test")) return true;

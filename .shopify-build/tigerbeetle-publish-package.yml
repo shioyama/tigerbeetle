@@ -1,0 +1,48 @@
+containers:
+  default:
+    environment: ci
+    privileged: true
+    build:
+      from: ubuntu-24
+      type: ci
+      apt:
+        install:
+          - git
+          - curl
+          - xz-utils
+          - golang-go
+
+steps:
+  - label: ':arrow_down: Download Zig'
+    timeout: 5m
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+    run:
+      - sh .shopify-build/install-zig.sh
+
+  - wait
+
+  - label: ':package: Build and publish'
+    timeout: 30m
+    branches: "0.*-shopify*"
+    git:
+      history: full
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+    run:
+      - sh .shopify-build/fetch-upstream-tags.sh
+      - ./.zig-install/zig build scripts -- release --build --shopify --sha="$BUILDKITE_COMMIT"
+    publish:
+      package:
+        repository_name: 'public'
+        package_type: 'deb'
+        distro_version: 'ubuntu/noble'
+        fail_on_duplicate: false
+        artifacts:
+          - path: zig-out/dist/shopify
+            patterns: ['*.deb']
