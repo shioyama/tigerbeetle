@@ -14,3 +14,8 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   script gains a `--shopify` flag that triggers fork-specific artifact assembly
   from `src/shopify/release.zig`, and `src/shopify/changelog.zig` validates
   `SHOPIFY-CHANGELOG.md` before each build.
+- Add `tb-snapshot`, a tool for rewriting TigerBeetle data file snapshots
+  (superblock and WAL) for use in blue-green upgrades and operational recovery.
+  Source lives at `src/shopify/tb_snapshot/`, built via `zig build tb-snapshot`
+  and installed by default. Tests run as part of `zig build test`. Shipped in
+  the fork's `.deb` package alongside `tigerbeetle`.

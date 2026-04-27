@@ -167,6 +167,10 @@ const quine =
     \\        if (std.mem.eql(u8, entry_path, "unit_tests.zig")) continue;
     \\        if (std.mem.eql(u8, entry_path, "integration_tests.zig")) continue;
     \\        if (std.mem.startsWith(u8, entry_path, "stdx/")) continue;
+    \\
+    \\        // [shopify] tb-snapshot has its own test artifact; see build.zig.
+    \\        if (std.mem.startsWith(u8, entry_path, "shopify/tb_snapshot/")) continue;
+    \\
     \\        if (std.mem.startsWith(u8, entry_path, "clients/") and
     \\            !std.mem.startsWith(u8, entry_path, "clients/c")) continue;
     \\        if (std.mem.eql(u8, entry_path, "clients/c/tb_client_header_test.zig")) continue;
@@ -291,6 +295,10 @@ fn unit_test_files(arena: std.mem.Allocator, src_dir: std.fs.Dir) ![]const []con
         if (std.mem.eql(u8, entry_path, "unit_tests.zig")) continue;
         if (std.mem.eql(u8, entry_path, "integration_tests.zig")) continue;
         if (std.mem.startsWith(u8, entry_path, "stdx/")) continue;
+
+        // [shopify] tb-snapshot has its own test artifact; see build.zig.
+        if (std.mem.startsWith(u8, entry_path, "shopify/tb_snapshot/")) continue;
+
         if (std.mem.startsWith(u8, entry_path, "clients/") and
             !std.mem.startsWith(u8, entry_path, "clients/c")) continue;
         if (std.mem.eql(u8, entry_path, "clients/c/tb_client_header_test.zig")) continue;

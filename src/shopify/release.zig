@@ -195,6 +195,23 @@ pub fn build_artifacts(
         try tigerbeetle_bin.chmod(0o755);
     }
 
+    // Upstream's tigerbeetle-x86_64-linux.zip only contains the tigerbeetle
+    // binary, so build tb-snapshot separately for the same target and stage it
+    // alongside in usr/bin/.
+    try shell.exec_zig("build tb-snapshot -Dtarget=x86_64-linux -Drelease=true", .{});
+    try Shell.copy_path(
+        shell.project_root,
+        "zig-out/bin/tb-snapshot",
+        bin_dir,
+        "tb-snapshot",
+    );
+    {
+        const tb_snapshot_bin = try bin_dir.openFile("tb-snapshot", .{});
+        defer tb_snapshot_bin.close();
+
+        try tb_snapshot_bin.chmod(0o755);
+    }
+
     // Copy the full go client dist into the package.
     try shell.exec("cp -r zig-out/dist/go/. {dest}", .{ .dest = go_client_dir });
 

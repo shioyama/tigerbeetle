@@ -35,7 +35,7 @@ Keep markers visible in diffs — don't bury them in surrounding refactors.
 
 - `.shopify-build/` — Buildkite CI pipeline, scripts, `VERSION` marker
 - `SHOPIFY-CHANGELOG.md` — fork release notes, organized per fork release
-- `src/shopify/` — fork-specific Zig source (e.g., `shopify/tidy.zig`, `shopify/changelog.zig`, `shopify/release.zig`). New fork logic goes here rather than as an upstream-file modification.
+- `src/shopify/` — fork-specific Zig source (e.g., `shopify/tidy.zig`, `shopify/changelog.zig`, `shopify/release.zig`, `shopify/tb_snapshot/`). New fork logic goes here rather than as an upstream-file modification. Subdirectories are used to group related sources for fork-only tools — see `shopify/tb_snapshot/` for the canonical example.
 
 ## Tags and versioning
 
