@@ -19,3 +19,7 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   Source lives at `src/shopify/tb_snapshot/`, built via `zig build tb-snapshot`
   and installed by default. Tests run as part of `zig build test`. Shipped in
   the fork's `.deb` package alongside `tigerbeetle`.
+- Restrict `--shopify` release builds to what the fork actually ships:
+  `x86_64-linux` release-mode `tigerbeetle` only, with the vortex driver skipped.
+  Avoids the unused upstream target matrix (windows/macos/aarch64 + debug variants)
+  during release validation and publish.
