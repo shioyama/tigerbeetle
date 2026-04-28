@@ -2,6 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 // NB: Don't import anything from `./src` to keep compile times low.
 
+// [shopify] Fork-only helpers. Small, fork-isolated; safe to import from build.zig.
+const shopify_tb_snapshot = @import("src/shopify/tb_snapshot/build.zig");
+
 const assert = std.debug.assert;
 const Query = std.Target.Query;
 
@@ -249,6 +252,19 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .mode = mode,
     });
+
+    // [shopify]
+    shopify_tb_snapshot.build_tb_snapshot(
+        b,
+        b.step("tb-snapshot", "Build the tb-snapshot tool"),
+        .{
+            .stdx_module = stdx_module,
+            .vsr_module = vsr_module,
+            .vsr_options = vsr_options,
+            .target = target,
+            .mode = mode,
+        },
+    );
 
     // zig build vortex:drivers:zig
     const vortex_driver_zig = build_vortex_driver_zig(b, .{
@@ -904,6 +920,19 @@ fn build_test(
     steps.test_unit.dependOn(&run_unit_tests.step);
 
     run_unit_tests.setCwd(b.path("."));
+
+    // [shopify]
+    shopify_tb_snapshot.build_tb_snapshot_test(b, .{
+        .@"test" = steps.@"test",
+        .test_unit = steps.test_unit,
+        .test_unit_build = steps.test_unit_build,
+    }, .{
+        .stdx_module = options.stdx_module,
+        .vsr_module_test = options.vsr_module_test,
+        .vsr_options_test = options.vsr_options_test,
+        .target = options.target,
+        .mode = options.mode,
+    });
 
     build_test_integration(b, .{
         .test_integration = steps.test_integration,
