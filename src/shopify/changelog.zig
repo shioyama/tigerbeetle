@@ -169,6 +169,65 @@ fn checkShopifyChangelog(
     if (!has_match) return error.MissingChangelogEntry;
 }
 
+// Validate that every entry in `SHOPIFY-CHANGELOG.md` is well-formed:
+//   1. each entry (a `- ` bullet at column 0) appears under a `### ` section
+//      header within a `## TigerBeetle ...` release;
+//   2. each entry's first line carries a fork-PR link of the form
+//      `](https://github.com/shop/tigerbeetle/pull/...)`.
+//
+// The check is intentionally light — it does not enforce which sections exist,
+// nor does it parse the link target beyond looking for the URL prefix.
+pub fn validateShopifyChangelogStructure(shell: *Shell) !void {
+    const allocator = shell.arena.allocator();
+    const text = try shell.project_root.readFileAlloc(
+        allocator,
+        "SHOPIFY-CHANGELOG.md",
+        changelog_bytes_max,
+    );
+    checkShopifyEntries(text) catch |err| {
+        switch (err) {
+            error.EntryWithoutSection => log.err(
+                "SHOPIFY-CHANGELOG.md has an entry that is not under a `### ` section",
+                .{},
+            ),
+            error.EntryWithoutPRLink => log.err(
+                "SHOPIFY-CHANGELOG.md has an entry without a " ++
+                    "`](https://github.com/shop/tigerbeetle/pull/...)` link",
+                .{},
+            ),
+        }
+        return err;
+    };
+}
+
+const fork_pr_link_prefix = "](https://github.com/shop/tigerbeetle/pull/";
+
+fn checkShopifyEntries(text: []const u8) error{
+    EntryWithoutSection,
+    EntryWithoutPRLink,
+}!void {
+    var release_open = false;
+    var section_open = false;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "## ")) {
+            release_open = true;
+            section_open = false;
+            continue;
+        }
+        if (std.mem.startsWith(u8, line, "### ")) {
+            if (release_open) section_open = true;
+            continue;
+        }
+        if (!std.mem.startsWith(u8, line, "- ")) continue;
+
+        if (!section_open) return error.EntryWithoutSection;
+        if (std.mem.indexOf(u8, line, fork_pr_link_prefix) == null) {
+            return error.EntryWithoutPRLink;
+        }
+    }
+}
+
 // Parses "X.Y.Z-shopifyN" into a comparable u64.
 pub fn parseShopifyVersion(version: []const u8) ?u64 {
     const base, const suffix = stdx.cut(version, "-shopify") orelse
@@ -315,6 +374,97 @@ test "shopify changelog release validation" {
     try std.testing.expectError(
         error.MissingReleaseDate,
         checkShopifyChangelog(no_date, "0.16.78-shopify3"),
+    );
+}
+
+test "shopify changelog structural validation" {
+    const valid =
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle (unreleased)
+        \\
+        \\### Patches
+        \\
+        \\- [#56](https://github.com/shop/tigerbeetle/pull/56)
+        \\
+        \\  Add the fork release pipeline.
+        \\
+        \\- [#60](https://github.com/shop/tigerbeetle/pull/60)
+        \\
+        \\  Add `tb-snapshot`.
+    ;
+    try checkShopifyEntries(valid);
+
+    // Multi-line entries with indented continuation are fine — only column-0
+    // `- ` lines are entries.
+    const valid_multiline =
+        \\## TigerBeetle (unreleased)
+        \\
+        \\### Patches
+        \\
+        \\- [#56](https://github.com/shop/tigerbeetle/pull/56)
+        \\
+        \\  First paragraph.
+        \\
+        \\  - a sub-bullet that is indented and not an entry
+        \\
+        \\  Second paragraph.
+    ;
+    try checkShopifyEntries(valid_multiline);
+
+    const without_link =
+        \\## TigerBeetle (unreleased)
+        \\
+        \\### Patches
+        \\
+        \\- A change with no PR link.
+    ;
+    try std.testing.expectError(
+        error.EntryWithoutPRLink,
+        checkShopifyEntries(without_link),
+    );
+
+    // Links to PRs on other repositories are not accepted
+    // changelog.
+    const invalid_link =
+        \\## TigerBeetle (unreleased)
+        \\
+        \\### Patches
+        \\
+        \\- [#3258](https://github.com/tigerbeetle/tigerbeetle/pull/3258)
+        \\
+        \\  Some change.
+    ;
+    try std.testing.expectError(
+        error.EntryWithoutPRLink,
+        checkShopifyEntries(invalid_link),
+    );
+
+    const without_section =
+        \\## TigerBeetle (unreleased)
+        \\
+        \\- [#56](https://github.com/shop/tigerbeetle/pull/56)
+        \\
+        \\  No section header above this entry.
+    ;
+    try std.testing.expectError(
+        error.EntryWithoutSection,
+        checkShopifyEntries(without_section),
+    );
+
+    // A section header before any release header doesn't open a section.
+    const section_outside_release =
+        \\# Shopify Changelog
+        \\
+        \\### Stray Section
+        \\
+        \\- [#56](https://github.com/shop/tigerbeetle/pull/56)
+        \\
+        \\  Entry under a section that isn't inside a release.
+    ;
+    try std.testing.expectError(
+        error.EntryWithoutSection,
+        checkShopifyEntries(section_outside_release),
     );
 }
 
