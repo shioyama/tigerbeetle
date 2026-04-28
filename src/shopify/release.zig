@@ -212,23 +212,52 @@ pub fn build_artifacts(
         try tb_snapshot_bin.chmod(0o755);
     }
 
-    // Copy the full go client dist into the package.
-    try shell.exec("cp -r zig-out/dist/go/. {dest}", .{ .dest = go_client_dir });
+    // Slim go-client: x86_64-linux native lib only, plus the Go source files
+    // callers actually import. Layered via tar to preserve the `pkg/...`
+    // directory structure without one `cp` per entry.
+    const go_client_tarball = "zig-out/dist/shopify/go-client.tar.gz";
+    try shell.exec(
+        \\tar czf {tarball}
+        \\    -C src/clients/go
+        \\    go.mod go.sum
+        \\    tb_client.go bindings.go errors.go uint128.go
+        \\    native/native.go native/tb_client.h native/libtb_client_x86_64-linux.a
+        \\    LICENSE
+    , .{ .tarball = go_client_tarball });
+    try shell.exec("tar xzf {tarball} -C {dest}", .{
+        .tarball = go_client_tarball,
+        .dest = go_client_dir,
+    });
 
     try shell.exec("dpkg-deb --build {staging} zig-out/dist/shopify/", .{
         .staging = pkg_dir,
     });
 
-    const deb_path = try shell.fmt(
-        "zig-out/dist/shopify/tigerbeetle_{s}_amd64.deb",
-        .{shopify_version},
-    );
-    shell.project_root.access(deb_path, .{}) catch |err| {
-        std.debug.panic(
-            "missing release artifact: {s} ({s})",
-            .{ deb_path, @errorName(err) },
-        );
+    // Postcondition: if the build steps above returned successfully, these
+    // artifacts must exist. A missing path here means a build step silently
+    // dropped its output (e.g. a renamed file, a tar source that vanished),
+    // which the `release/*` validate pipeline must catch — publish would
+    // otherwise upload an incomplete .deb.
+    const expected_artifacts = [_][]const u8{
+        try shell.fmt(
+            "zig-out/dist/shopify/tigerbeetle_{s}_amd64.deb",
+            .{shopify_version},
+        ),
+        try shell.fmt("{s}/usr/bin/tigerbeetle", .{pkg_dir}),
+        try shell.fmt("{s}/usr/bin/tb-snapshot", .{pkg_dir}),
+        try shell.fmt(
+            "{s}/usr/share/tigerbeetle/go-client/native/libtb_client_x86_64-linux.a",
+            .{pkg_dir},
+        ),
     };
+    for (expected_artifacts) |path| {
+        shell.project_root.access(path, .{}) catch |err| {
+            std.debug.panic(
+                "missing release artifact: {s} ({s})",
+                .{ path, @errorName(err) },
+            );
+        };
+    }
 }
 
 /// Returns the next shopify suffix number for the given base version.
