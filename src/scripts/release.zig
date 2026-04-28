@@ -181,7 +181,9 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     }
 
     if (cli_args.build) {
-        try build(shell, languages, version_info, cli_args.devhub);
+        // [shopify] Pass `cli_args.shopify` so `build` can take the fork's
+        // x86_64-linux-only path and skip vortex, which the fork doesn't ship.
+        try build(shell, languages, version_info, cli_args.devhub, cli_args.shopify);
 
         // [shopify] Assemble fork artifacts (.deb) from the dist tree.
         if (cli_args.shopify) {
@@ -196,7 +198,13 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     }
 }
 
-fn build(shell: *Shell, languages: LanguageSet, info: VersionInfo, devhub: bool) !void {
+fn build(
+    shell: *Shell,
+    languages: LanguageSet,
+    info: VersionInfo,
+    devhub: bool,
+    shopify: bool, // [shopify]
+) !void {
     var section = try shell.open_section("build all");
     defer section.close();
 
@@ -208,15 +216,20 @@ fn build(shell: *Shell, languages: LanguageSet, info: VersionInfo, devhub: bool)
         try dist_dir.realpathAlloc(shell.arena.allocator(), "."),
     });
 
-    if (languages.contains(.zig)) {
+    if (languages.contains(.zig)) zig_block: {
         var dist_dir_tigerbeetle = try dist_dir.makeOpenPath("tigerbeetle", .{});
         defer dist_dir_tigerbeetle.close();
 
         if (devhub) {
             try build_tigerbeetle_target(shell, info, dist_dir_tigerbeetle, false, "x86_64-linux");
+        } else if (shopify) {
+            // [shopify] Fork releases only ship the x86_64-linux release binary.
+            try build_tigerbeetle_target(shell, info, dist_dir_tigerbeetle, false, "x86_64-linux");
         } else {
             try build_tigerbeetle(shell, info, dist_dir_tigerbeetle);
         }
+
+        if (shopify) break :zig_block; // [shopify] skip vortex — not shipped by the fork
 
         var dist_dir_vortex = try dist_dir.makeOpenPath("vortex", .{});
         defer dist_dir_vortex.close();
