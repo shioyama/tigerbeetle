@@ -173,7 +173,8 @@ fn checkShopifyChangelog(
 //   1. each entry (a `- ` bullet at column 0) appears under a `### ` section
 //      header within a `## TigerBeetle ...` release;
 //   2. each entry's first line carries a fork-PR link of the form
-//      `](https://github.com/shop/tigerbeetle/pull/...)`;
+//      `](https://github.com/shop/tigerbeetle/pull/...)`, optionally followed
+//      by additional indented `[#N](...)` lines for multi-PR entries;
 //   3. the bullet is followed by a blank line before the description, and
 //      continuation lines are indented with at least two spaces, so the
 //      markdown renderer attaches them to the list item.
@@ -215,6 +216,7 @@ pub fn validateShopifyChangelogStructure(shell: *Shell) !void {
 
 const fork_pr_link_prefix = "](https://github.com/shop/tigerbeetle/pull/";
 const entry_continuation_indent = "  ";
+const pr_link_continuation_prefix = "  [#";
 
 fn checkShopifyEntries(text: []const u8) error{
     EntryWithoutSection,
@@ -252,6 +254,12 @@ fn checkShopifyEntries(text: []const u8) error{
         }
         if (line.len == 0) {
             entry_just_opened = false;
+            continue;
+        }
+        if (entry_just_opened and
+            std.mem.startsWith(u8, line, pr_link_continuation_prefix) and
+            std.mem.indexOf(u8, line, fork_pr_link_prefix) != null)
+        {
             continue;
         }
         if (entry_just_opened) return error.EntryMissingBlankAfterBullet;
@@ -429,6 +437,21 @@ test "shopify changelog structural validation" {
         \\  Add `tb-snapshot`.
     ;
     try checkShopifyEntries(valid);
+
+    // Multi-PR entries with indented `[#N](url)` continuation lines mirror
+    // upstream's CHANGELOG.md format.
+    const valid_multi_pr =
+        \\## TigerBeetle (unreleased)
+        \\
+        \\### Patches
+        \\
+        \\- [#56](https://github.com/shop/tigerbeetle/pull/56),
+        \\  [#57](https://github.com/shop/tigerbeetle/pull/57),
+        \\  [#58](https://github.com/shop/tigerbeetle/pull/58)
+        \\
+        \\  A change spanning multiple PRs.
+    ;
+    try checkShopifyEntries(valid_multi_pr);
 
     // Multi-line entries with indented continuation are fine — only column-0
     // `- ` lines are entries.
