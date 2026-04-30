@@ -64,6 +64,7 @@ Rules the validator enforces (keep your first push green):
 
 - Each `- ` bullet at column 0 is an entry; it must contain `](https://github.com/shop/tigerbeetle/pull/...)` on its first line.
 - Every entry must appear under a `### ` section header inside a `## TigerBeetle ...` release.
+- The bullet line must be followed by a blank line, and the description paragraph(s) must be indented at least two spaces.
 - Section names are not enforced
 
 Chicken-and-egg on PR number: PRs and issues share a counter, so predict the next with `gh api 'repos/shop/tigerbeetle/issues?state=all&per_page=1' --jq '.[0].number'` and add 1. If you guess wrong, amend the link before merge — the validator only requires *some* fork-PR URL, not that it resolves.
