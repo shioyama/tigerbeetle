@@ -20,7 +20,8 @@ Corollaries:
 `src/tidy.zig`'s `tidy shopify fork` check runs on PR branches and enforces:
 
 - **Commit prefix**: every commit on the PR branch must start with `[shopify]`.
-- **Changelog**: if any non-test `src/` file changes, `SHOPIFY-CHANGELOG.md` must be updated in the same PR.
+- **Changelog updated**: if any non-test `src/` file changes, `SHOPIFY-CHANGELOG.md` must be updated in the same PR.
+- **Changelog well-formed**: every entry must sit under a `### ` section inside a `## TigerBeetle ...` release header and carry a fork-PR link. See [SHOPIFY-CHANGELOG.md structure](#shopify-changelogmd-structure) below.
 
 ## In-code markers
 
@@ -44,4 +45,26 @@ Keep markers visible in diffs — don't bury them in surrounding refactors.
 
 ## SHOPIFY-CHANGELOG.md structure
 
-Entries are grouped by fork release, with each patch linked to its PR and describing: what changed, why, upstream-compatibility notes. See existing entries for the format.
+Entries are grouped per fork release. Each entry leads with a fork-PR link followed by a blank line and a paragraph describing what changed, why, and any upstream-compatibility notes. Mirrors upstream's `CHANGELOG.md` format; checked by `tidy shopify fork` (see [src/shopify/changelog.zig](src/shopify/changelog.zig)).
+
+Canonical shape:
+
+```markdown
+## TigerBeetle (unreleased)
+
+### Patches
+
+- [#NNN](https://github.com/shop/tigerbeetle/pull/NNN)
+
+  One paragraph describing the change. Wrap at ~90 chars. Use `code spans`
+  for paths and identifiers.
+```
+
+Rules the validator enforces (keep your first push green):
+
+- Each `- ` bullet at column 0 is an entry; it must contain `](https://github.com/shop/tigerbeetle/pull/...)` on its first line.
+- Every entry must appear under a `### ` section header inside a `## TigerBeetle ...` release.
+- The bullet line must be followed by a blank line, and the description paragraph(s) must be indented at least two spaces.
+- Section names are not enforced
+
+Chicken-and-egg on PR number: PRs and issues share a counter, so predict the next with `gh api 'repos/shop/tigerbeetle/issues?state=all&per_page=1' --jq '.[0].number'` and add 1. If you guess wrong, amend the link before merge — the validator only requires *some* fork-PR URL, not that it resolves.

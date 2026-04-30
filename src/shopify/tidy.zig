@@ -3,19 +3,28 @@
 //!   1. Every commit on the PR branch must be prefixed with `[shopify]`.
 //!   2. If any non-test `src/` file changed, `SHOPIFY-CHANGELOG.md` must be updated in
 //!      the same PR.
+//!   3. `SHOPIFY-CHANGELOG.md` is well-formed — every entry sits under a section
+//!      and carries a fork-PR link.
 //!
-//! Both checks diff against `BUILDKITE_PULL_REQUEST_BASE_BRANCH` if set, and fall back
-//! to `main` otherwise so the checks exercise locally too.
+//! Checks 1 and 2 diff against `BUILDKITE_PULL_REQUEST_BASE_BRANCH` if set, and fall back
+//! to `main` otherwise so the checks exercise locally too. Check 3 runs unconditionally.
 
 const std = @import("std");
 const mem = std.mem;
 
 const Shell = @import("../shell.zig");
+const validateShopifyChangelogStructure =
+    @import("changelog.zig").validateShopifyChangelogStructure;
 
 test "tidy shopify fork" {
     const allocator = std.testing.allocator;
     const shell = try Shell.create(allocator);
     defer shell.destroy();
+
+    // Check 3: SHOPIFY-CHANGELOG.md is structurally well-formed. Runs
+    // unconditionally — independent of git history — so it catches malformed
+    // entries even on branches that don't touch `src/`.
+    try validateShopifyChangelogStructure(shell);
 
     const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse "main";
 
