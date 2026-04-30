@@ -19,14 +19,14 @@ const changelog_bytes_max = 10 * stdx.MiB;
 // (the top `## TigerBeetle ...` header). Fails if the top entry is marked
 // unreleased, so the release script refuses to build a fork release from a
 // changelog that hasn't been finalized.
-pub fn shopifyLatestVersion(shell: *Shell) ![]const u8 {
+pub fn shopify_latest_version(shell: *Shell) ![]const u8 {
     const allocator = shell.arena.allocator();
     const text = try shell.project_root.readFileAlloc(
         allocator,
         "SHOPIFY-CHANGELOG.md",
         changelog_bytes_max,
     );
-    return extractShopifyLatestVersion(text) catch |err| {
+    return extract_shopify_latest_version(text) catch |err| {
         switch (err) {
             error.UnreleasedChangelog => log.err(
                 "SHOPIFY-CHANGELOG.md has an unreleased entry",
@@ -41,7 +41,7 @@ pub fn shopifyLatestVersion(shell: *Shell) ![]const u8 {
     };
 }
 
-fn extractShopifyLatestVersion(text: []const u8) error{
+fn extract_shopify_latest_version(text: []const u8) error{
     UnreleasedChangelog,
     MissingChangelogEntry,
 }![]const u8 {
@@ -58,7 +58,7 @@ fn extractShopifyLatestVersion(text: []const u8) error{
 
 // Validate SHOPIFY-CHANGELOG.md for release readiness and check that the
 // release tag base matches CHANGELOG.md.
-pub fn validateShopifyRelease(
+pub fn validate_shopify_release(
     shell: *Shell,
     release_version: []const u8,
 ) !void {
@@ -69,7 +69,7 @@ pub fn validateShopifyRelease(
         "SHOPIFY-CHANGELOG.md",
         changelog_bytes_max,
     );
-    checkShopifyChangelog(shopify_text, release_version) catch |err| {
+    check_shopify_changelog(shopify_text, release_version) catch |err| {
         switch (err) {
             error.UnreleasedChangelog => log.err(
                 "SHOPIFY-CHANGELOG.md has an unreleased entry",
@@ -112,7 +112,7 @@ pub fn validateShopifyRelease(
         "{[major]}.{[minor]}.{[patch]}",
         upstream_release.triple(),
     );
-    checkShopifyReleaseBase(release_version, upstream_version) catch {
+    check_shopify_release_base(release_version, upstream_version) catch {
         log.err(
             "release base version does not match CHANGELOG.md version \"{s}\"",
             .{upstream_version},
@@ -122,7 +122,7 @@ pub fn validateShopifyRelease(
     log.info("release base version matches CHANGELOG.md", .{});
 }
 
-fn checkShopifyChangelog(
+fn check_shopify_changelog(
     text: []const u8,
     release_version: []const u8,
 ) error{
@@ -132,7 +132,7 @@ fn checkShopifyChangelog(
     VersionExceedsRelease,
     InvalidVersion,
 }!void {
-    const release_ord = parseShopifyVersion(release_version) orelse
+    const release_ord = parse_shopify_version(release_version) orelse
         return error.InvalidVersion;
 
     var has_match = false;
@@ -159,7 +159,7 @@ fn checkShopifyChangelog(
             continue;
         }
 
-        const entry_ord = parseShopifyVersion(version_string) orelse
+        const entry_ord = parse_shopify_version(version_string) orelse
             return error.InvalidVersion;
         if (entry_ord > release_ord) {
             return error.VersionExceedsRelease;
@@ -181,14 +181,14 @@ fn checkShopifyChangelog(
 //
 // The check is intentionally light — it does not enforce which sections exist,
 // nor does it parse the link target beyond looking for the URL prefix.
-pub fn validateShopifyChangelogStructure(shell: *Shell) !void {
+pub fn validate_shopify_changelog_structure(shell: *Shell) !void {
     const allocator = shell.arena.allocator();
     const text = try shell.project_root.readFileAlloc(
         allocator,
         "SHOPIFY-CHANGELOG.md",
         changelog_bytes_max,
     );
-    checkShopifyEntries(text) catch |err| {
+    check_shopify_entries(text) catch |err| {
         switch (err) {
             error.EntryWithoutSection => log.err(
                 "SHOPIFY-CHANGELOG.md has an entry that is not under a `### ` section",
@@ -218,7 +218,7 @@ const fork_pr_link_prefix = "](https://github.com/shop/tigerbeetle/pull/";
 const entry_continuation_indent = "  ";
 const pr_link_continuation_prefix = "  [#";
 
-fn checkShopifyEntries(text: []const u8) error{
+fn check_shopify_entries(text: []const u8) error{
     EntryWithoutSection,
     EntryWithoutPRLink,
     EntryMissingBlankAfterBullet,
@@ -272,7 +272,7 @@ fn checkShopifyEntries(text: []const u8) error{
 }
 
 // Parses "X.Y.Z-shopifyN" into a comparable u64.
-pub fn parseShopifyVersion(version: []const u8) ?u64 {
+pub fn parse_shopify_version(version: []const u8) ?u64 {
     const base, const suffix = stdx.cut(version, "-shopify") orelse
         return null;
     const triple = ReleaseTriple.parse(base) catch return null;
@@ -285,7 +285,7 @@ pub fn parseShopifyVersion(version: []const u8) ?u64 {
 }
 
 // Check that a release version's base matches the upstream CHANGELOG version.
-pub fn checkShopifyReleaseBase(
+pub fn check_shopify_release_base(
     release_version: []const u8,
     changelog_version: []const u8,
 ) error{VersionMismatch}!void {
@@ -309,7 +309,7 @@ test "shopify latest version extraction" {
     ;
     try std.testing.expectEqualStrings(
         "0.16.78-shopify3",
-        try extractShopifyLatestVersion(valid),
+        try extract_shopify_latest_version(valid),
     );
 
     const with_unreleased =
@@ -321,7 +321,7 @@ test "shopify latest version extraction" {
     ;
     try std.testing.expectError(
         error.UnreleasedChangelog,
-        extractShopifyLatestVersion(with_unreleased),
+        extract_shopify_latest_version(with_unreleased),
     );
 
     const no_entries =
@@ -331,7 +331,7 @@ test "shopify latest version extraction" {
     ;
     try std.testing.expectError(
         error.MissingChangelogEntry,
-        extractShopifyLatestVersion(no_entries),
+        extract_shopify_latest_version(no_entries),
     );
 
     const skip_unrelated =
@@ -343,7 +343,7 @@ test "shopify latest version extraction" {
     ;
     try std.testing.expectEqualStrings(
         "0.16.78-shopify3",
-        try extractShopifyLatestVersion(skip_unrelated),
+        try extract_shopify_latest_version(skip_unrelated),
     );
 }
 
@@ -368,21 +368,21 @@ test "shopify changelog release validation" {
         \\- another change
     ;
 
-    try checkShopifyChangelog(valid, "0.16.78-shopify3");
+    try check_shopify_changelog(valid, "0.16.78-shopify3");
 
     try std.testing.expectError(
         error.VersionExceedsRelease,
-        checkShopifyChangelog(valid, "0.16.78-shopify2"),
+        check_shopify_changelog(valid, "0.16.78-shopify2"),
     );
 
     try std.testing.expectError(
         error.MissingChangelogEntry,
-        checkShopifyChangelog(valid, "0.16.78-shopify4"),
+        check_shopify_changelog(valid, "0.16.78-shopify4"),
     );
 
     try std.testing.expectError(
         error.VersionExceedsRelease,
-        checkShopifyChangelog(valid, "0.16.78-shopify1"),
+        check_shopify_changelog(valid, "0.16.78-shopify1"),
     );
 
     const with_unreleased =
@@ -401,7 +401,7 @@ test "shopify changelog release validation" {
 
     try std.testing.expectError(
         error.UnreleasedChangelog,
-        checkShopifyChangelog(with_unreleased, "0.16.78-shopify3"),
+        check_shopify_changelog(with_unreleased, "0.16.78-shopify3"),
     );
 
     const no_date =
@@ -416,7 +416,7 @@ test "shopify changelog release validation" {
 
     try std.testing.expectError(
         error.MissingReleaseDate,
-        checkShopifyChangelog(no_date, "0.16.78-shopify3"),
+        check_shopify_changelog(no_date, "0.16.78-shopify3"),
     );
 }
 
@@ -436,7 +436,7 @@ test "shopify changelog structural validation" {
         \\
         \\  Add `tb-snapshot`.
     ;
-    try checkShopifyEntries(valid);
+    try check_shopify_entries(valid);
 
     // Multi-PR entries with indented `[#N](url)` continuation lines mirror
     // upstream's CHANGELOG.md format.
@@ -468,7 +468,7 @@ test "shopify changelog structural validation" {
         \\
         \\  Second paragraph.
     ;
-    try checkShopifyEntries(valid_multiline);
+    try check_shopify_entries(valid_multiline);
 
     const without_link =
         \\## TigerBeetle (unreleased)
@@ -479,7 +479,7 @@ test "shopify changelog structural validation" {
     ;
     try std.testing.expectError(
         error.EntryWithoutPRLink,
-        checkShopifyEntries(without_link),
+        check_shopify_entries(without_link),
     );
 
     // Links to PRs on other repositories are not accepted
@@ -495,7 +495,7 @@ test "shopify changelog structural validation" {
     ;
     try std.testing.expectError(
         error.EntryWithoutPRLink,
-        checkShopifyEntries(invalid_link),
+        check_shopify_entries(invalid_link),
     );
 
     const without_section =
@@ -507,7 +507,7 @@ test "shopify changelog structural validation" {
     ;
     try std.testing.expectError(
         error.EntryWithoutSection,
-        checkShopifyEntries(without_section),
+        check_shopify_entries(without_section),
     );
 
     // A description paragraph at column 0 is not part of the list item under
@@ -527,7 +527,7 @@ test "shopify changelog structural validation" {
     ;
     try std.testing.expectError(
         error.EntryDescriptionNotIndented,
-        checkShopifyEntries(without_indent),
+        check_shopify_entries(without_indent),
     );
 
     // A description glued directly to the bullet collapses into the link
@@ -542,7 +542,7 @@ test "shopify changelog structural validation" {
     ;
     try std.testing.expectError(
         error.EntryMissingBlankAfterBullet,
-        checkShopifyEntries(without_blank),
+        check_shopify_entries(without_blank),
     );
 
     // A section header before any release header doesn't open a section.
@@ -557,17 +557,17 @@ test "shopify changelog structural validation" {
     ;
     try std.testing.expectError(
         error.EntryWithoutSection,
-        checkShopifyEntries(section_outside_release),
+        check_shopify_entries(section_outside_release),
     );
 }
 
 test "shopify release base version check" {
-    try checkShopifyReleaseBase("0.16.78-shopify3", "0.16.78");
+    try check_shopify_release_base("0.16.78-shopify3", "0.16.78");
 
     try std.testing.expectError(
         error.VersionMismatch,
-        checkShopifyReleaseBase("0.16.79-shopify1", "0.16.78"),
+        check_shopify_release_base("0.16.79-shopify1", "0.16.78"),
     );
 
-    try checkShopifyReleaseBase("0.16.78", "0.16.78");
+    try check_shopify_release_base("0.16.78", "0.16.78");
 }

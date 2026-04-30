@@ -44,3 +44,14 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   postcondition at the end of `build_artifacts` so a missing tigerbeetle binary,
   tb-snapshot binary, go-client native lib, or `.deb` panics during release
   validation rather than silently publishing an incomplete package.
+
+- [#67](https://github.com/shop/tigerbeetle/pull/67)
+
+  Convert fork-only Zig functions in `src/shopify/` from camelCase to snake_case to
+  match TigerBeetle's convention (upstream uses snake_case for functions, unlike
+  Zig stdlib's camelCase). Renames 14 functions across `changelog.zig` and
+  `release.zig` plus their callsite in `src/scripts/release.zig`. Adds a `tidy
+  shopify fork` Check 4 that scans every `.zig` file under `src/shopify/` for
+  function declarations whose names start lowercase but contain uppercase letters,
+  so the rule enforces itself on future PRs. PascalCase type-returning functions
+  are still allowed.

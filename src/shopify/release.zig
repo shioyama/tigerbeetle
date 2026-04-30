@@ -48,7 +48,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
         upstream_release.triple(),
     );
 
-    const next_n = nextShopifyN(shopify_text, base_version);
+    const next_n = next_shopify_n(shopify_text, base_version);
     const version = try shell.fmt("{s}-shopify{}", .{ base_version, next_n });
 
     const stdout = std.io.getStdOut().writer();
@@ -73,7 +73,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
             return;
         }
 
-        shopify_text = try insertUpstreamMergeEntry(allocator, shopify_text);
+        shopify_text = try insert_upstream_merge_entry(allocator, shopify_text);
     }
 
     try stdout.print("Next release version: {s}\nProceed? [Y/n] ", .{version});
@@ -94,31 +94,31 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
     try shell.exec("git fetch origin --quiet", .{});
     try shell.exec("git switch --create {branch} origin/main", .{ .branch = branch });
 
-    const updated_text = try updateChangelogForRelease(allocator, shopify_text, version, today);
+    const updated_text = try update_changelog_for_release(allocator, shopify_text, version, today);
     try shell.project_root.writeFile(.{
         .sub_path = "SHOPIFY-CHANGELOG.md",
         .data = updated_text,
     });
 
-    try shopify_changelog.validateShopifyRelease(shell, version);
+    try shopify_changelog.validate_shopify_release(shell, version);
 
     const commit_msg = try shell.fmt("[shopify] Release {s}", .{version});
     try shell.exec("git add SHOPIFY-CHANGELOG.md", .{});
     try shell.exec("git commit -m {commit_msg}", .{ .commit_msg = commit_msg });
     try shell.exec("git push -u origin {branch}", .{ .branch = branch });
 
-    const changelog_body = extractChangelogBody(updated_text, version);
+    const changelog_body = extract_changelog_body(updated_text, version);
 
     const pr_title = try shell.fmt("Release {s}", .{version});
     var url_buf = std.ArrayList(u8).init(allocator);
     const url_writer = url_buf.writer();
     try url_writer.writeAll("https://github.com/shop/tigerbeetle/compare/main...");
-    try queryPercentEncode(url_writer, branch);
+    try query_percent_encode(url_writer, branch);
     try url_writer.writeAll("?expand=1&title=");
-    try queryPercentEncode(url_writer, pr_title);
+    try query_percent_encode(url_writer, pr_title);
     if (changelog_body.len > 0) {
         try url_writer.writeAll("&body=");
-        try queryPercentEncode(url_writer, changelog_body);
+        try query_percent_encode(url_writer, changelog_body);
     }
     const url = url_buf.items;
 
@@ -263,7 +263,7 @@ pub fn build_artifacts(
 /// Returns the next shopify suffix number for the given base version.
 /// Scans changelog headers like `## TigerBeetle X.Y.Z-shopifyN` and returns N+1
 /// for the highest matching N, or 1 if no releases exist for this base.
-fn nextShopifyN(shopify_text: []const u8, base_version: []const u8) u16 {
+fn next_shopify_n(shopify_text: []const u8, base_version: []const u8) u16 {
     var highest_n: u16 = 0;
     var lines = std.mem.splitScalar(u8, shopify_text, '\n');
     while (lines.next()) |line| {
@@ -282,7 +282,7 @@ fn nextShopifyN(shopify_text: []const u8, base_version: []const u8) u16 {
 /// Inserts an unreleased section with an "Upstream merge" entry before the first
 /// version header in the changelog. Used when cutting the first shopify release
 /// on a new upstream version.
-fn insertUpstreamMergeEntry(allocator: std.mem.Allocator, shopify_text: []const u8) ![]u8 {
+fn insert_upstream_merge_entry(allocator: std.mem.Allocator, shopify_text: []const u8) ![]u8 {
     const insert_pos = std.mem.indexOf(u8, shopify_text, "\n## TigerBeetle ") orelse {
         log.err("SHOPIFY-CHANGELOG.md has no version entries", .{});
         return error.MalformedChangelog;
@@ -296,7 +296,7 @@ fn insertUpstreamMergeEntry(allocator: std.mem.Allocator, shopify_text: []const 
 }
 
 /// Replaces the `(unreleased)` header with a versioned header and release date.
-fn updateChangelogForRelease(
+fn update_changelog_for_release(
     allocator: std.mem.Allocator,
     shopify_text: []const u8,
     version: []const u8,
@@ -320,7 +320,7 @@ fn updateChangelogForRelease(
 
 /// Extracts the body text of the changelog entry for the given version.
 /// Returns the text between the version header and the next `## ` header (or end of file).
-fn extractChangelogBody(text: []const u8, version: []const u8) []const u8 {
+fn extract_changelog_body(text: []const u8, version: []const u8) []const u8 {
     var search: []const u8 = text;
     const header_start = while (search.len > 0) {
         const idx = std.mem.indexOf(u8, search, "## TigerBeetle ") orelse break null;
@@ -345,30 +345,30 @@ fn extractChangelogBody(text: []const u8, version: []const u8) []const u8 {
     return std.mem.trim(u8, text[body_start..body_end], "\n");
 }
 
-fn queryPercentEncode(writer: anytype, input: []const u8) !void {
-    try std.Uri.Component.percentEncode(writer, input, isUnreserved);
+fn query_percent_encode(writer: anytype, input: []const u8) !void {
+    try std.Uri.Component.percentEncode(writer, input, is_unreserved);
 }
 
-fn isUnreserved(c: u8) bool {
+fn is_unreserved(c: u8) bool {
     return switch (c) {
         'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => true,
         else => false,
     };
 }
 
-test "queryPercentEncode" {
+test "query_percent_encode" {
     var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
 
-    try queryPercentEncode(buf.writer(), "Release 0.16.78-shopify4");
+    try query_percent_encode(buf.writer(), "Release 0.16.78-shopify4");
     try std.testing.expectEqualStrings("Release%200.16.78-shopify4", buf.items);
 
     buf.clearRetainingCapacity();
-    try queryPercentEncode(buf.writer(), "### Patches\n\n- a change");
+    try query_percent_encode(buf.writer(), "### Patches\n\n- a change");
     try std.testing.expectEqualStrings("%23%23%23%20Patches%0A%0A-%20a%20change", buf.items);
 }
 
-test "extractChangelogBody" {
+test "extract_changelog_body" {
     const text =
         \\# Shopify Changelog
         \\
@@ -385,7 +385,7 @@ test "extractChangelogBody" {
         \\Released: 2026-04-15
     ;
 
-    const body = extractChangelogBody(text, "0.16.78-shopify4");
+    const body = extract_changelog_body(text, "0.16.78-shopify4");
     try std.testing.expectEqualStrings(
         \\Released: 2026-04-16
         \\
@@ -394,10 +394,10 @@ test "extractChangelogBody" {
         \\- a cool change
     , body);
 
-    try std.testing.expectEqualStrings("", extractChangelogBody(text, "0.16.78-shopify99"));
+    try std.testing.expectEqualStrings("", extract_changelog_body(text, "0.16.78-shopify99"));
 }
 
-test "nextShopifyN" {
+test "next_shopify_n" {
     const text =
         \\# Shopify Changelog
         \\
@@ -420,12 +420,12 @@ test "nextShopifyN" {
         \\Released: 2026-03-21
     ;
 
-    try std.testing.expectEqual(@as(u16, 4), nextShopifyN(text, "0.16.78"));
-    try std.testing.expectEqual(@as(u16, 2), nextShopifyN(text, "0.16.77"));
-    try std.testing.expectEqual(@as(u16, 1), nextShopifyN(text, "0.16.79"));
+    try std.testing.expectEqual(@as(u16, 4), next_shopify_n(text, "0.16.78"));
+    try std.testing.expectEqual(@as(u16, 2), next_shopify_n(text, "0.16.77"));
+    try std.testing.expectEqual(@as(u16, 1), next_shopify_n(text, "0.16.79"));
 }
 
-test "insertUpstreamMergeEntry" {
+test "insert_upstream_merge_entry" {
     const text =
         \\# Shopify Changelog
         \\
@@ -436,7 +436,7 @@ test "insertUpstreamMergeEntry" {
         \\Released: 2026-04-15
     ;
 
-    const result = try insertUpstreamMergeEntry(std.testing.allocator, text);
+    const result = try insert_upstream_merge_entry(std.testing.allocator, text);
     defer std.testing.allocator.free(result);
 
     try std.testing.expectEqualStrings(
@@ -456,7 +456,7 @@ test "insertUpstreamMergeEntry" {
     , result);
 }
 
-test "updateChangelogForRelease" {
+test "update_changelog_for_release" {
     const text =
         \\# Shopify Changelog
         \\
@@ -471,7 +471,7 @@ test "updateChangelogForRelease" {
         \\Released: 2026-04-15
     ;
 
-    const result = try updateChangelogForRelease(
+    const result = try update_changelog_for_release(
         std.testing.allocator,
         text,
         "0.16.78-shopify4",
