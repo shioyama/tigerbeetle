@@ -5,7 +5,17 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ## TigerBeetle (unreleased)
 
-### Patches
+### Tooling
+
+- [#60](https://github.com/shop/tigerbeetle/pull/60)
+
+  Add `tb-snapshot`, a tool for rewriting TigerBeetle data file snapshots
+  (superblock and WAL) for use in blue-green upgrades and operational recovery.
+  Source lives at `src/shopify/tb_snapshot/`, built via `zig build tb-snapshot`
+  and installed by default. Tests run as part of `zig build test`. Shipped in
+  the fork's `.deb` package alongside `tigerbeetle`.
+
+### CI
 
 - [#56](https://github.com/shop/tigerbeetle/pull/56)
 
@@ -16,14 +26,6 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   The upstream release script gains a `--shopify` flag that triggers fork-specific
   artifact assembly from `src/shopify/release.zig`, and `src/shopify/changelog.zig`
   validates `SHOPIFY-CHANGELOG.md` before each build.
-
-- [#60](https://github.com/shop/tigerbeetle/pull/60)
-
-  Add `tb-snapshot`, a tool for rewriting TigerBeetle data file snapshots
-  (superblock and WAL) for use in blue-green upgrades and operational recovery.
-  Source lives at `src/shopify/tb_snapshot/`, built via `zig build tb-snapshot`
-  and installed by default. Tests run as part of `zig build test`. Shipped in
-  the fork's `.deb` package alongside `tigerbeetle`.
 
 - [#62](https://github.com/shop/tigerbeetle/pull/62)
 
