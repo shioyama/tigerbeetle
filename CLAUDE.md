@@ -22,6 +22,7 @@ Corollaries:
 - **Commit prefix**: every commit on the PR branch must start with `[shopify]`.
 - **Changelog updated**: if any non-test `src/` file changes, `SHOPIFY-CHANGELOG.md` must be updated in the same PR.
 - **Changelog well-formed**: every entry must sit under a `### ` section inside a `## TigerBeetle ...` release header and carry a fork-PR link. See [SHOPIFY-CHANGELOG.md structure](#shopify-changelogmd-structure) below.
+- **snake_case functions**: functions in `src/shopify/` use snake_case to match TigerBeetle (not Zig stdlib's camelCase). PascalCase type-returning functions are allowed.
 
 ## In-code markers
 

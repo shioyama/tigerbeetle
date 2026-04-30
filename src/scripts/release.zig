@@ -72,8 +72,8 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
 
     // [shopify] Validate and pin the fork version from SHOPIFY-CHANGELOG.md.
     const shopify_version: ?[]const u8 = if (cli_args.shopify) blk: {
-        const v = try shopify_changelog.shopifyLatestVersion(shell);
-        try shopify_changelog.validateShopifyRelease(shell, v);
+        const v = try shopify_changelog.shopify_latest_version(shell);
+        try shopify_changelog.validate_shopify_release(shell, v);
         break :blk v;
     } else null;
 
