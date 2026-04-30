@@ -23,6 +23,10 @@ Corollaries:
 - **Changelog updated**: if any non-test `src/` file changes, `SHOPIFY-CHANGELOG.md` must be updated in the same PR.
 - **Changelog well-formed**: every entry must sit under a `### ` section inside a `## TigerBeetle ...` release header and carry a fork-PR link. See [SHOPIFY-CHANGELOG.md structure](#shopify-changelogmd-structure) below.
 
+## Building and testing
+
+Use `./zig/zig` — the system `zig` is usually a newer version that won't build this repo. Run `./zig/zig build test -- <filter>` to scope tests by name (e.g. `./zig/zig build test -- tidy` runs the fork tidy checks); omit the filter for the full suite. `./zig/zig build check` is a fast compile-only check.
+
 ## In-code markers
 
 Fork-specific lines inside upstream files are marked with `// [shopify]`. Examples:
