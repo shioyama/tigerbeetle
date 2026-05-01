@@ -5,6 +5,15 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ## TigerBeetle (unreleased)
 
+### Patches
+
+- [#74](https://github.com/shop/tigerbeetle/pull/74)
+
+  Add `--shadow=<addresses>` and `--shadower-count=N` for cluster shadowing.
+  A shadow replica connects to a running cluster as a standby to sync its
+  state; the shadowed cluster reserves inbound standby slots without outbound
+  addresses. Includes single-node and multi-replica integration tests.
+
 ### Fixes
 
 - [#NNN](https://github.com/shop/tigerbeetle/pull/NNN)

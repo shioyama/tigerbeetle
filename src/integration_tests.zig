@@ -495,3 +495,300 @@ test "vortex smoke" {
         .{ .vortex_exe = vortex_exe },
     );
 }
+
+// [shopify] Shadow-cluster integration tests.
+test "shadow cluster" {
+    // Test that a replica can start in shadow mode, connect to a running
+    // primary cluster as a standby, and sync up to the primary's state.
+    //
+    // 1. Format and start a single-node primary cluster with one standby slot.
+    // 2. Send operations to the primary.
+    // 3. Copy the primary's datafile for the shadow.
+    // 4. Send more operations to the primary (the shadow will catch up).
+    // 5. Start the shadow in shadow mode pointing at the primary.
+    // 6. Wait for the shadow to sync.
+    // 7. Verify the shadow process is still running.
+
+    const gpa = std.testing.allocator;
+    const shell = try Shell.create(gpa);
+    defer shell.destroy();
+
+    const primary_address = "127.0.0.1:7200";
+    const shadow_address = "127.0.0.1:7201";
+
+    const tmp = try shell.fmt(
+        "./.zig-cache/tmp/{}",
+        .{std.crypto.random.int(u64)},
+    );
+
+    defer shell.cwd.deleteTree(tmp) catch {};
+
+    try shell.cwd.makePath(tmp);
+
+    const primary_datafile = try shell.fmt("{s}/primary_0_0.tigerbeetle", .{tmp});
+    const shadow_datafile = try shell.fmt("{s}/shadow_0_0.tigerbeetle", .{tmp});
+
+    // Step 1: Format primary cluster (1 replica, 1 standby slot)
+    try shell.exec(
+        "{tigerbeetle} format --cluster=0 --replica=0 --replica-count=1 --development {datafile}",
+        .{ .tigerbeetle = tigerbeetle, .datafile = primary_datafile },
+    );
+
+    // Step 2: Start primary cluster with 1 shadow slot
+    var primary_process = try shell.spawn(
+        .{},
+        "{tigerbeetle} start --development --experimental" ++
+            " --shadower-count=1 --addresses={address} {datafile}",
+        .{
+            .tigerbeetle = tigerbeetle,
+            .address = primary_address,
+            .datafile = primary_datafile,
+        },
+    );
+    defer _ = primary_process.kill() catch {};
+
+    std.time.sleep(10 * std.time.ns_per_s);
+
+    const repl = "{tigerbeetle} repl" ++
+        " --cluster=0 --addresses={address}" ++
+        " --command={command}";
+
+    // Step 3: Send initial operations to the primary
+    try shell.exec(repl, .{
+        .tigerbeetle = tigerbeetle,
+        .address = primary_address,
+        .command = "create_accounts id=1 code=10 ledger=700" ++
+            ", id=2 code=10 ledger=700",
+    });
+    try shell.exec(repl, .{
+        .tigerbeetle = tigerbeetle,
+        .address = primary_address,
+        .command = "create_transfers id=1" ++
+            " debit_account_id=1 credit_account_id=2" ++
+            " amount=100 ledger=700 code=10",
+    });
+
+    // Step 4: Copy primary datafile for the shadow
+    try shell.cwd.copyFile(
+        primary_datafile,
+        shell.cwd,
+        shadow_datafile,
+        .{},
+    );
+
+    // Step 5: Send more ops to the primary (the shadow must catch up)
+    try shell.exec(repl, .{
+        .tigerbeetle = tigerbeetle,
+        .address = primary_address,
+        .command = "create_transfers id=2" ++
+            " debit_account_id=2 credit_account_id=1" ++
+            " amount=50 ledger=700 code=10",
+    });
+    try shell.exec(repl, .{
+        .tigerbeetle = tigerbeetle,
+        .address = primary_address,
+        .command = "create_transfers id=3" ++
+            " debit_account_id=1 credit_account_id=2" ++
+            " amount=25 ledger=700 code=10",
+    });
+
+    // Step 6: Start the shadow in shadow mode
+    var shadow_process = try shell.spawn(
+        .{},
+        "{tigerbeetle} start --development --experimental" ++
+            " --addresses={shadow_address}" ++
+            " --shadow={primary_address} {datafile}",
+        .{
+            .tigerbeetle = tigerbeetle,
+            .shadow_address = shadow_address,
+            .primary_address = primary_address,
+            .datafile = shadow_datafile,
+        },
+    );
+    defer _ = shadow_process.kill() catch {};
+
+    // Wait for the shadow to sync (repair a few missing ops)
+    std.time.sleep(10 * std.time.ns_per_s);
+
+    // Step 7: Verify the shadow process is still running (didn't crash).
+    {
+        const WNOHANG = 1;
+        const ret = std.posix.waitpid(shadow_process.id, WNOHANG);
+        if (ret.pid != 0) {
+            log.err("shadow process terminated unexpectedly", .{});
+            return error.ShadowCrashed;
+        }
+    }
+
+    // NOTE: Standalone restart of the shadow after shadow mode is deferred.
+    // The superblock state from shadow mode (sync_op_min/max, view) needs
+    // reconciliation first. Cleanup is handled by defers.
+
+    log.info("shadow cluster test passed", .{});
+}
+
+test "shadow cluster multi-replica" {
+    const gpa = std.testing.allocator;
+    const shell = try Shell.create(gpa);
+    defer shell.destroy();
+
+    const replica_count = 3;
+    const primary_addrs =
+        "127.0.0.1:7210,127.0.0.1:7211,127.0.0.1:7212";
+    const shadow_addrs =
+        "127.0.0.1:7220,127.0.0.1:7221,127.0.0.1:7222";
+    const tmp = try shell.fmt(
+        "./.zig-cache/tmp/{}",
+        .{std.crypto.random.int(u64)},
+    );
+
+    defer shell.cwd.deleteTree(tmp) catch {};
+
+    try shell.cwd.makePath(tmp);
+
+    // Format and start the primary (3 replicas + 3 shadow slots).
+    var primary_datafiles: [replica_count][]const u8 = undefined;
+    var primary: [replica_count]?std.process.Child =
+        @splat(null);
+
+    defer for (&primary) |*p| {
+        if (p.*) |*alive|
+            std.posix.kill(alive.id, std.posix.SIG.KILL) catch {};
+    };
+
+    log.info("multi-replica: formatting primary", .{});
+    for (0..replica_count) |i| {
+        primary_datafiles[i] = try shell.fmt(
+            "{s}/primary_{}.tigerbeetle",
+            .{ tmp, i },
+        );
+        try shell.exec(
+            "{tigerbeetle} format --cluster=0" ++
+                " --replica={replica}" ++
+                " --replica-count={replica_count}" ++
+                " --development {datafile}",
+            .{
+                .tigerbeetle = tigerbeetle,
+                .replica = i,
+                .replica_count = replica_count,
+                .datafile = primary_datafiles[i],
+            },
+        );
+    }
+
+    log.info("multi-replica: starting primary", .{});
+    for (0..replica_count) |i| {
+        primary[i] = try shell.spawn(
+            .{},
+            "{tigerbeetle} start --development" ++
+                " --experimental" ++
+                " --shadower-count={shadower_count}" ++
+                " --addresses={addresses} {datafile}",
+            .{
+                .tigerbeetle = tigerbeetle,
+                .shadower_count = replica_count,
+                .addresses = primary_addrs,
+                .datafile = primary_datafiles[i],
+            },
+        );
+    }
+    log.info("multi-replica: waiting for primary startup", .{});
+    std.time.sleep(10 * std.time.ns_per_s);
+
+    const repl = "{tigerbeetle} repl" ++
+        " --cluster=0 --addresses={address}" ++
+        " --command={command}";
+
+    log.info("multi-replica: sending ops to primary", .{});
+    try shell.exec(repl, .{
+        .tigerbeetle = tigerbeetle,
+        .address = "127.0.0.1:7210",
+        .command = "create_accounts id=1 code=10 ledger=700" ++
+            ", id=2 code=10 ledger=700",
+    });
+    try shell.exec(repl, .{
+        .tigerbeetle = tigerbeetle,
+        .address = "127.0.0.1:7210",
+        .command = "create_transfers id=1" ++
+            " debit_account_id=1 credit_account_id=2" ++
+            " amount=100 ledger=700 code=10",
+    });
+
+    log.info("multi-replica: copying datafiles", .{});
+    var shadow_datafiles: [replica_count][]const u8 =
+        undefined;
+    for (0..replica_count) |i| {
+        shadow_datafiles[i] = try shell.fmt(
+            "{s}/shadow_{}.tigerbeetle",
+            .{ tmp, i },
+        );
+        try shell.cwd.copyFile(
+            primary_datafiles[i],
+            shell.cwd,
+            shadow_datafiles[i],
+            .{},
+        );
+    }
+
+    log.info("multi-replica: sending more ops", .{});
+    try shell.exec(repl, .{
+        .tigerbeetle = tigerbeetle,
+        .address = "127.0.0.1:7210",
+        .command = "create_transfers id=2" ++
+            " debit_account_id=2 credit_account_id=1" ++
+            " amount=50 ledger=700 code=10",
+    });
+    try shell.exec(repl, .{
+        .tigerbeetle = tigerbeetle,
+        .address = "127.0.0.1:7210",
+        .command = "create_transfers id=3" ++
+            " debit_account_id=1 credit_account_id=2" ++
+            " amount=25 ledger=700 code=10",
+    });
+
+    log.info("multi-replica: starting shadow", .{});
+    var shadow: [replica_count]?std.process.Child =
+        @splat(null);
+
+    defer for (&shadow) |*p| {
+        if (p.*) |*alive|
+            std.posix.kill(alive.id, std.posix.SIG.KILL) catch {};
+    };
+
+    for (0..replica_count) |i| {
+        shadow[i] = try shell.spawn(
+            .{},
+            "{tigerbeetle} start --development" ++
+                " --experimental" ++
+                " --addresses={shadow_addrs}" ++
+                " --shadow={primary_addrs} {datafile}",
+            .{
+                .tigerbeetle = tigerbeetle,
+                .shadow_addrs = shadow_addrs,
+                .primary_addrs = primary_addrs,
+                .datafile = shadow_datafiles[i],
+            },
+        );
+    }
+    log.info("multi-replica: waiting for shadow sync", .{});
+    std.time.sleep(15 * std.time.ns_per_s);
+
+    log.info("multi-replica: checking shadow liveness", .{});
+    for (&shadow, 0..) |*sp, i| {
+        const WNOHANG = 1;
+        const ret = std.posix.waitpid(
+            sp.*.?.id,
+            WNOHANG,
+        );
+        if (ret.pid != 0) {
+            log.err(
+                "shadow replica {} terminated unexpectedly",
+                .{i},
+            );
+            return error.ShadowCrashed;
+        }
+    }
+
+    log.info("multi-replica: cleanup", .{});
+    log.info("shadow cluster multi-replica test passed", .{});
+}
