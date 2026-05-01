@@ -17,6 +17,13 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### CI
 
+- [#72](https://github.com/shop/tigerbeetle/pull/72)
+
+  Add a `skip-changelog-check` commit-message marker that exempts a commit's
+  own non-test `src/` changes from the `tidy shopify fork` changelog-update
+  check. Per-commit attribution — a marked commit does not suppress the
+  check for other commits in the same PR.
+
 - [#56](https://github.com/shop/tigerbeetle/pull/56)
 
   Add the fork release pipeline: a `.shopify-build/tigerbeetle-publish-package.yml`

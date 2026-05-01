@@ -2,7 +2,8 @@
 //!
 //!   1. Every commit on the PR branch must be prefixed with `[shopify]`.
 //!   2. If any non-test `src/` file changed, `SHOPIFY-CHANGELOG.md` must be updated in
-//!      the same PR.
+//!      the same PR. A commit whose message contains `skip-changelog-check` exempts
+//!      its own changes only — other commits in the PR still trigger the check.
 //!   3. `SHOPIFY-CHANGELOG.md` is well-formed — every entry sits under a section
 //!      and carries a fork-PR link.
 //!   4. Functions in `src/shopify/` use snake_case, matching TigerBeetle's convention
@@ -58,22 +59,44 @@ test "tidy shopify fork" {
     }
 
     // Check 2: If non-test src/ files changed, SHOPIFY-CHANGELOG.md must be updated.
+    // Per-commit: a commit whose message contains `skip-changelog-check` exempts
+    // its own src/ changes, but other commits' changes still trigger the check.
     {
-        const diff_output = try shell.exec_stdout("git diff --name-only FETCH_HEAD HEAD", .{});
-        var has_src_changes = false;
+        const shas = try shell.exec_stdout("git log --format=%H FETCH_HEAD..HEAD", .{});
+        var has_unskipped_src_changes = false;
         var changelog_changed = false;
-        var lines = mem.splitScalar(u8, diff_output, '\n');
-        while (lines.next()) |path| {
-            if (path.len == 0) continue;
-            if (mem.eql(u8, path, "SHOPIFY-CHANGELOG.md")) {
-                changelog_changed = true;
-                continue;
+        var sha_lines = mem.splitScalar(u8, shas, '\n');
+        while (sha_lines.next()) |sha| {
+            if (sha.len == 0) continue;
+            const msg = try shell.exec_stdout(
+                "git log -1 --format=%B {sha}",
+                .{ .sha = sha },
+            );
+            const skipped = mem.indexOf(u8, msg, "skip-changelog-check") != null;
+            if (skipped) {
+                std.debug.print(
+                    "note: skip-changelog-check applied to {s}\n",
+                    .{sha[0..@min(sha.len, 7)]},
+                );
             }
-            if (mem.startsWith(u8, path, "src/") and !is_test_file(path)) {
-                has_src_changes = true;
+            const files = try shell.exec_stdout(
+                "git diff-tree --no-commit-id --name-only -r {sha}",
+                .{ .sha = sha },
+            );
+            var file_lines = mem.splitScalar(u8, files, '\n');
+            while (file_lines.next()) |path| {
+                if (path.len == 0) continue;
+                if (mem.eql(u8, path, "SHOPIFY-CHANGELOG.md")) {
+                    changelog_changed = true;
+                    continue;
+                }
+                if (skipped) continue;
+                if (mem.startsWith(u8, path, "src/") and !is_test_file(path)) {
+                    has_unskipped_src_changes = true;
+                }
             }
         }
-        if (has_src_changes and !changelog_changed) {
+        if (has_unskipped_src_changes and !changelog_changed) {
             std.debug.print(
                 "error: non-test src/ files changed but " ++
                     "SHOPIFY-CHANGELOG.md was not updated\n",
