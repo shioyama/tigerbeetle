@@ -17,6 +17,15 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### CI
 
+- [#76](https://github.com/shop/tigerbeetle/pull/76)
+
+  Fix publish pipeline crash with `FileBusy` on `zig-out/dist`. Buildkite
+  pre-mounts the artifact collection directory before the container starts;
+  the upstream release script then calls `deleteTree("zig-out/dist")` and
+  hits `EBUSY` on the mountpoint. Moved shopify artifact output from
+  `zig-out/dist/shopify/` to `zig-out/shopify-dist/` so upstream's cleanup
+  never touches the mounted path.
+
 - [#72](https://github.com/shop/tigerbeetle/pull/72)
 
   Add a `skip-changelog-check` commit-message marker that exempts a commit's

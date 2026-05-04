@@ -44,5 +44,5 @@ steps:
         distro_version: 'ubuntu/noble'
         fail_on_duplicate: false
         artifacts:
-          - path: zig-out/dist/shopify
+          - path: zig-out/shopify-dist
             patterns: ['*.deb']
