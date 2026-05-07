@@ -147,10 +147,10 @@ pub fn build_artifacts(
     try shell.project_root.access("zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip", .{});
     try shell.project_root.access("zig-out/dist/go", .{});
 
-    try shell.project_root.makePath("zig-out/dist/shopify");
+    try shell.project_root.makePath("zig-out/shopify-dist");
 
     const pkg_dir = try shell.fmt(
-        "zig-out/dist/shopify/deb-staging/tigerbeetle_{s}_amd64",
+        "zig-out/shopify-dist/deb-staging/tigerbeetle_{s}_amd64",
         .{shopify_version},
     );
 
@@ -215,7 +215,7 @@ pub fn build_artifacts(
     // Slim go-client: x86_64-linux native lib only, plus the Go source files
     // callers actually import. Layered via tar to preserve the `pkg/...`
     // directory structure without one `cp` per entry.
-    const go_client_tarball = "zig-out/dist/shopify/go-client.tar.gz";
+    const go_client_tarball = "zig-out/shopify-dist/go-client.tar.gz";
     try shell.exec(
         \\tar czf {tarball}
         \\    -C src/clients/go
@@ -229,7 +229,7 @@ pub fn build_artifacts(
         .dest = go_client_dir,
     });
 
-    try shell.exec("dpkg-deb --build {staging} zig-out/dist/shopify/", .{
+    try shell.exec("dpkg-deb --build {staging} zig-out/shopify-dist/", .{
         .staging = pkg_dir,
     });
 
@@ -240,7 +240,7 @@ pub fn build_artifacts(
     // otherwise upload an incomplete .deb.
     const expected_artifacts = [_][]const u8{
         try shell.fmt(
-            "zig-out/dist/shopify/tigerbeetle_{s}_amd64.deb",
+            "zig-out/shopify-dist/tigerbeetle_{s}_amd64.deb",
             .{shopify_version},
         ),
         try shell.fmt("{s}/usr/bin/tigerbeetle", .{pkg_dir}),

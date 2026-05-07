@@ -451,7 +451,7 @@ test "shopify changelog structural validation" {
         \\
         \\  A change spanning multiple PRs.
     ;
-    try checkShopifyEntries(valid_multi_pr);
+    try check_shopify_entries(valid_multi_pr);
 
     // Multi-line entries with indented continuation are fine — only column-0
     // `- ` lines are entries.
