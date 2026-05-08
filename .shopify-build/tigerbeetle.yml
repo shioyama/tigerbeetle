@@ -8,6 +8,10 @@ containers:
       from: ubuntu-24
       type: ci
       apt:
+        repos:
+          - "deb https://pkgs.shopify.io/STATIC_CLOUDSMITH_TOKEN/public/deb/ubuntu noble main"
+        keys:
+          - "https://pkgs.shopify.io/STATIC_CLOUDSMITH_TOKEN/public/gpg.key"
         install:
           - git
           - curl
@@ -24,6 +28,16 @@ steps:
     run:
       - sh .shopify-build/install-zig.sh
 
+  - label: ':arrow_down: Download fork binaries'
+    timeout: 5m
+    cache:
+      - path: .fork-bins
+        digest:
+          - .shopify-build/fork-versions.txt
+          - .shopify-build/fetch-fork-binaries.sh
+    run:
+      - sh .shopify-build/fetch-fork-binaries.sh
+
   - wait
 
   - label: ':test_tube: Tests'
@@ -37,6 +51,11 @@ steps:
         digest:
           - zig/download.sh
         upload: false
+      - path: .fork-bins
+        digest:
+          - .shopify-build/fork-versions.txt
+          - .shopify-build/fetch-fork-binaries.sh
+        upload: false
     run:
       - sh .shopify-build/fetch-upstream-tags.sh
       - ./.zig-install/zig build test
@@ -49,6 +68,11 @@ steps:
         digest:
           - zig/download.sh
         upload: false
+      - path: .fork-bins
+        digest:
+          - .shopify-build/fork-versions.txt
+          - .shopify-build/fetch-fork-binaries.sh
+        upload: false
     run:
       - sh .shopify-build/fetch-upstream-tags.sh
       - ./.zig-install/zig build fuzz -- smoke
@@ -60,6 +84,11 @@ steps:
       - path: .zig-install
         digest:
           - zig/download.sh
+        upload: false
+      - path: .fork-bins
+        digest:
+          - .shopify-build/fork-versions.txt
+          - .shopify-build/fetch-fork-binaries.sh
         upload: false
     run:
       - sh .shopify-build/fetch-upstream-tags.sh
@@ -75,6 +104,11 @@ steps:
       - path: .zig-install
         digest:
           - zig/download.sh
+        upload: false
+      - path: .fork-bins
+        digest:
+          - .shopify-build/fork-versions.txt
+          - .shopify-build/fetch-fork-binaries.sh
         upload: false
     run:
       - sh .shopify-build/fetch-upstream-tags.sh

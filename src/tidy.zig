@@ -1397,6 +1397,7 @@ test "tidy extensions" {
         .{"src/clients/python/src/tigerbeetle/py.typed"},
         // [shopify]
         .{".shopify-build/VERSION"},
+        .{".shopify-build/fetch-fork-binaries.sh"},
         .{".shopify-build/fetch-upstream-tags.sh"},
         .{".shopify-build/install-zig.sh"},
     });
