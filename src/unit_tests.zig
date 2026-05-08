@@ -40,6 +40,7 @@ comptime {
     _ = @import("scripts/changelog.zig");
     _ = @import("shell.zig");
     _ = @import("shopify/changelog.zig");
+    _ = @import("shopify/changelog_parse.zig");
     _ = @import("shopify/release.zig");
     _ = @import("shopify/tidy.zig");
     _ = @import("stack.zig");

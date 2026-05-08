@@ -90,7 +90,11 @@ fn configuration(shell: *Shell) !struct {
             const suffix = std.mem.indexOfScalar(u8, output, '+');
             assert(std.mem.startsWith(u8, output, prefix));
 
-            release.* = try Release.parse(output[prefix.len..suffix.?]);
+            // [shopify] Fork builds render `X.Y.Z-shopifyN+<sha>`; trim the
+            // `-shopifyN` pre-release segment so `Release.parse` (triple-only) accepts it.
+            const triple = output[prefix.len..suffix.?];
+            const triple_end = std.mem.indexOfScalar(u8, triple, '-') orelse triple.len;
+            release.* = try Release.parse(triple[0..triple_end]);
         }
         break :array release_list;
     };

@@ -7,6 +7,15 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Tooling
 
+- [#79](https://github.com/shop/tigerbeetle/pull/79)
+
+  Surface the fork suffix in `tigerbeetle version` output. `build.zig` parses
+  `SHOPIFY-CHANGELOG.md` (via `src/shopify/changelog_parse.zig`) and injects
+  the suffix into `constants.semver.pre` through `vsr_options`. Released
+  builds render as `0.17.0-shopify1+<sha>`; dev builds with an `(unreleased)`
+  section render as `0.17.0-unreleased+<sha>`. Vortex's supervisor strips the
+  new pre-release segment before passing the triple to `Release.parse`.
+
 - [#60](https://github.com/shop/tigerbeetle/pull/60)
 
   Add `tb-snapshot`, a tool for rewriting TigerBeetle data file snapshots
