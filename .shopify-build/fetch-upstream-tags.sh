@@ -10,8 +10,7 @@
 set -eu
 
 git fetch https://github.com/tigerbeetle/tigerbeetle.git \
-  refs/tags/0.17.0:refs/tags/0.17.0 \
   refs/tags/0.16.78:refs/tags/0.16.78 \
-  refs/tags/0.16.75:refs/tags/0.16.75 \
-  refs/tags/0.16.74:refs/tags/0.16.74 \
-  refs/tags/0.16.73:refs/tags/0.16.73
+  refs/tags/0.16.77:refs/tags/0.16.77 \
+  refs/tags/0.16.76:refs/tags/0.16.76 \
+  refs/tags/0.16.75:refs/tags/0.16.75
