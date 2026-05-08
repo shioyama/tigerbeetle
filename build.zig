@@ -1346,19 +1346,22 @@ fn release_history(b: *std.Build) std.mem.SplitIterator(u8, .scalar) {
         "--sort=-committerdate", // Sort from newest to oldest.
         "--list", "[0-9]*.[0-9]*.[0-9]*", // NB: This is not anchored (^$).
     });
-    // [shopify] Drop X.Y.Z-shopifyN tags before iteration. fetch_release() and
-    // fetch_vortex_driver_zig() download from upstream's GitHub releases page, which
-    // doesn't host fork artifacts; until fork-tag fetching is wired up, multi-version
-    // slots stay on upstream tags only.
-    return std.mem.splitScalar(u8, shopify_filter_upstream_tags(b, tags_string), '\n');
+    // [shopify] Drop X.Y.Z-shopifyN tags whose fork binary isn't staged locally.
+    // fetch_release() reads fork binaries from .fork-bins/ (populated in CI by
+    // .shopify-build/fetch-fork-binaries.sh); upstream tags continue to download
+    // from upstream's GitHub releases page.
+    return std.mem.splitScalar(u8, shopify_filter_unavailable_fork_tags(b, tags_string), '\n');
 }
 
 // [shopify]
-fn shopify_filter_upstream_tags(b: *std.Build, tags_string: []const u8) []const u8 {
+fn shopify_filter_unavailable_fork_tags(b: *std.Build, tags_string: []const u8) []const u8 {
     var filtered: std.ArrayListUnmanaged(u8) = .empty;
     var it = std.mem.splitScalar(u8, tags_string, '\n');
     while (it.next()) |tag| {
-        if (std.mem.indexOf(u8, tag, "-shopify") != null) continue;
+        if (std.mem.indexOf(u8, tag, "-shopify") != null) {
+            const local_path = b.fmt(".fork-bins/{s}/tigerbeetle", .{tag});
+            b.build_root.handle.access(local_path, .{}) catch continue;
+        }
         filtered.appendSlice(b.allocator, tag) catch @panic("OOM");
         filtered.append(b.allocator, '\n') catch @panic("OOM");
     }
@@ -2349,6 +2352,14 @@ fn fetch_release(
     target: std.Build.ResolvedTarget,
     mode: std.builtin.OptimizeMode,
 ) std.Build.LazyPath {
+    // [shopify] Fork-tagged binaries are staged into .fork-bins/<tag>/ by
+    // .shopify-build/fetch-fork-binaries.sh; upstream's release URL doesn't
+    // host them. release_history() filters out fork tags whose binary isn't
+    // staged, so by the time we land here the file is expected to exist.
+    if (std.mem.indexOf(u8, version_or_latest, "-shopify") != null) {
+        return b.path(b.fmt(".fork-bins/{s}/tigerbeetle", .{version_or_latest}));
+    }
+
     const release_slug = if (std.mem.eql(u8, version_or_latest, "latest"))
         "latest/download"
     else
@@ -2403,10 +2414,20 @@ fn fetch_vortex_driver_zig(
         else => @panic("unsupported CPU"),
     };
 
+    // [shopify] Fork tags reuse the upstream X.Y.Z driver binary. The fork
+    // hasn't diverged the C client (src/clients/c/, libtb_client, tb_client.h)
+    // since 0.17.0, so vortex-driver-zig-X.Y.Z is binary-equivalent to a
+    // hypothetical fork-built vortex-driver-zig-X.Y.Z-shopifyN. Strip the
+    // suffix here rather than republishing the same artifact under a fork tag.
+    const upstream_version = if (std.mem.indexOf(u8, version, "-shopify")) |idx|
+        version[0..idx]
+    else
+        version;
+
     const url = b.fmt(
         "https://github.com/tigerbeetle/tigerbeetle" ++
             "/releases/download/{s}/vortex-driver-zig-{s}-linux.zip",
-        .{ version, arch },
+        .{ upstream_version, arch },
     );
     return fetch(b, .{ .url = url, .file_name = "vortex-driver-zig", .hash = null });
 }

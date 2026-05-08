@@ -8,9 +8,12 @@
 //!      and carries a fork-PR link.
 //!   4. Functions in `src/shopify/` use snake_case, matching TigerBeetle's convention
 //!      (not Zig stdlib's camelCase). PascalCase type-returning functions are allowed.
+//!   5. `.shopify-build/fork-versions.txt` lists the four most recent `-shopify*` tags
+//!      reachable from `HEAD^`, newest first. Forces the manifest to stay in sync with
+//!      git so CI stages the right binaries for vortex's multi-version slots.
 //!
 //! Checks 1 and 2 diff against `BUILDKITE_PULL_REQUEST_BASE_BRANCH` if set, and fall back
-//! to `main` otherwise so the checks exercise locally too. Checks 3 and 4 run
+//! to `main` otherwise so the checks exercise locally too. Checks 3, 4, and 5 run
 //! unconditionally.
 
 const std = @import("std");
@@ -32,6 +35,9 @@ test "tidy shopify fork" {
 
     // Check 4: Functions in src/shopify/ use snake_case.
     try validate_snake_case_functions(shell);
+
+    // Check 5: fork-versions.txt manifest matches git tag history.
+    try validate_fork_versions_manifest(shell);
 
     const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse "main";
 
@@ -137,6 +143,66 @@ fn validate_snake_case_functions(shell: *Shell) !void {
         }
     }
     if (has_offenders) return error.CamelCaseFunction;
+}
+
+// Number of prior-version slots vortex consumes from `release_history()`
+// (`server_exes[2..6]` in build.zig).
+const fork_versions_max = 4;
+const fork_versions_manifest = ".shopify-build/fork-versions.txt";
+
+// The manifest must equal the most recent `-shopify*` tags reachable from `HEAD^`,
+// newest first, capped at `fork_versions_max`. Keeps `.fork-bins/` in sync with what
+// `release_history()` will iterate. Once enough fork tags exist to fill every slot,
+// `.shopify-build/fetch-upstream-tags.sh` becomes redundant and can be retired.
+fn validate_fork_versions_manifest(shell: *Shell) !void {
+    const allocator = shell.arena.allocator();
+
+    const tags_output = shell.exec_stdout(
+        "git tag --merged HEAD^ --sort=-committerdate",
+        .{},
+    ) catch {
+        std.debug.print(
+            "warning: could not list git tags, skipping fork-versions check\n",
+            .{},
+        );
+        return;
+    };
+
+    var expected: std.ArrayListUnmanaged(u8) = .empty;
+    var found: u32 = 0;
+    var lines = mem.splitScalar(u8, tags_output, '\n');
+    while (lines.next()) |tag| {
+        if (tag.len == 0) continue;
+        if (mem.indexOf(u8, tag, "-shopify") == null) continue;
+        try expected.appendSlice(allocator, tag);
+        try expected.append(allocator, '\n');
+        found += 1;
+        if (found >= fork_versions_max) break;
+    }
+
+    const manifest = shell.project_root.readFileAlloc(
+        allocator,
+        fork_versions_manifest,
+        4096,
+    ) catch |err| {
+        std.debug.print(
+            "error: could not read {s}: {s}\n",
+            .{ fork_versions_manifest, @errorName(err) },
+        );
+        return error.ForkVersionsMissing;
+    };
+
+    if (!mem.eql(u8, manifest, expected.items)) {
+        std.debug.print(
+            "error: {s} is out of sync with git tags.\n" ++
+                "expected (most recent {d} -shopify* tags reachable from HEAD^, newest first):\n" ++
+                "{s}" ++
+                "got:\n" ++
+                "{s}",
+            .{ fork_versions_manifest, fork_versions_max, expected.items, manifest },
+        );
+        return error.ForkVersionsOutOfSync;
+    }
 }
 
 // Returns the offending function name if `line` declares a camelCase function,

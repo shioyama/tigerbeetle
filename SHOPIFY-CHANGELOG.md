@@ -7,12 +7,14 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### CI
 
-- [#82](https://github.com/shop/tigerbeetle/pull/82)
+- [#83](https://github.com/shop/tigerbeetle/pull/83)
 
-  Filter `X.Y.Z-shopifyN` tags from `build.zig`'s `release_history()` — the
-  iterator feeds `fetch_release()`, which downloads from upstream's GitHub
-  releases page where fork artifacts don't exist. Multi-version slots stay
-  on upstream tags until fork-tag fetching lands.
+  Stage `X.Y.Z-shopifyN` tigerbeetle binaries from Cloudsmith into `.fork-bins/`
+  in CI so vortex's multi-version slots can include fork releases. `fetch_release()`
+  reads from `.fork-bins/` for fork tags; `fetch_vortex_driver_zig()` strips
+  `-shopifyN` and reuses the upstream driver. A new `tidy shopify fork` Check 5
+  keeps `.shopify-build/fork-versions.txt` in sync with the four most recent
+  `-shopify*` tags reachable from `HEAD^`.
 
 ## TigerBeetle 0.17.0-shopify1
 

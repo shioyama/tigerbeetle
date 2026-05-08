@@ -2,11 +2,10 @@
 # Fetches a pinned list of upstream TigerBeetle release tags so that
 # build.zig's `release_history` (which calls `git tag --merged HEAD^`)
 # has enough recent tags to populate vortex's multi-version upgrade slots.
-#
-# We pin an explicit list rather than fetching all upstream tags so that
-# once the fork ships its first 0.17.0 release and starts cutting its own
-# tags, this script can be replaced with a fork-only fetch without pulling
-# in upstream releases whose upgrade paths no longer apply to the fork.
+# The four tags below fill the iterator's four slots; in ReleaseSafe Linux,
+# only the most recent (0.16.78) is wired into vortex_options as the
+# upgrade-from binary. Fork tags are filtered out in `release_history`
+# itself, so the list here is upstream-only.
 set -eu
 
 git fetch https://github.com/tigerbeetle/tigerbeetle.git \
