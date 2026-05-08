@@ -12,6 +12,8 @@ const stdx = @import("stdx");
 const Shell = @import("../shell.zig");
 const ChangelogIterator = @import("../scripts/changelog.zig").ChangelogIterator;
 const ReleaseTriple = @import("../multiversion.zig").ReleaseTriple;
+const changelog_parse = @import("./changelog_parse.zig");
+const extract_shopify_latest_version = changelog_parse.extract_shopify_latest_version;
 
 const changelog_bytes_max = 10 * stdx.MiB;
 
@@ -39,21 +41,6 @@ pub fn shopify_latest_version(shell: *Shell) ![]const u8 {
         }
         return err;
     };
-}
-
-fn extract_shopify_latest_version(text: []const u8) error{
-    UnreleasedChangelog,
-    MissingChangelogEntry,
-}![]const u8 {
-    var lines = std.mem.splitScalar(u8, text, '\n');
-    while (lines.next()) |line| {
-        if (!std.mem.startsWith(u8, line, "## ")) continue;
-        if (std.mem.indexOf(u8, line, "unreleased") != null) {
-            return error.UnreleasedChangelog;
-        }
-        return stdx.cut_prefix(line, "## TigerBeetle ") orelse continue;
-    }
-    return error.MissingChangelogEntry;
 }
 
 // Validate SHOPIFY-CHANGELOG.md for release readiness and check that the

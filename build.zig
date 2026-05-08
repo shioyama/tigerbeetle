@@ -445,6 +445,16 @@ fn build_vsr_module(b: *std.Build, options: struct {
     vsr_options.addOption(bool, "config_verify", options.config_verify);
     vsr_options.addOption([]const u8, "release", options.config_release);
     vsr_options.addOption([]const u8, "release_client_min", options.config_release_client_min);
+    // [shopify] Parse the fork suffix out of SHOPIFY-CHANGELOG.md so it appears
+    // in `tigerbeetle version` output. Empty for upstream trees lacking the file.
+    const changelog_parse = @import("src/shopify/changelog_parse.zig");
+    const shopify_changelog = b.build_root.handle.readFileAlloc(
+        b.allocator,
+        "SHOPIFY-CHANGELOG.md",
+        1 << 20,
+    ) catch "";
+    const fork_version = changelog_parse.extract_fork_version(shopify_changelog);
+    vsr_options.addOption([]const u8, "fork_version", fork_version);
 
     const vsr_module = b.createModule(.{
         .root_source_file = b.path("src/vsr.zig"),

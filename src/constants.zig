@@ -7,6 +7,8 @@ const assert = std.debug.assert;
 const vsr = @import("vsr.zig");
 const Config = @import("config.zig").Config;
 const stdx = @import("stdx");
+// [shopify] Fork suffix from SHOPIFY-CHANGELOG.md, parsed in build.zig.
+const fork_version: []const u8 = @import("vsr_options").fork_version;
 
 const MiB = stdx.MiB;
 
@@ -16,7 +18,8 @@ pub const semver = std.SemanticVersion{
     .major = config.process.release.triple().major,
     .minor = config.process.release.triple().minor,
     .patch = config.process.release.triple().patch,
-    .pre = null,
+    // [shopify] Fork suffix renders as `0.17.0-shopify1`; null for upstream builds.
+    .pre = if (fork_version.len > 0) fork_version else null,
     .build = if (config.process.git_commit) |sha_full| sha_full[0..7] else null,
 };
 
