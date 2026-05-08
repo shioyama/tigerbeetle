@@ -1346,7 +1346,23 @@ fn release_history(b: *std.Build) std.mem.SplitIterator(u8, .scalar) {
         "--sort=-committerdate", // Sort from newest to oldest.
         "--list", "[0-9]*.[0-9]*.[0-9]*", // NB: This is not anchored (^$).
     });
-    return std.mem.splitScalar(u8, tags_string, '\n');
+    // [shopify] Drop X.Y.Z-shopifyN tags before iteration. fetch_release() and
+    // fetch_vortex_driver_zig() download from upstream's GitHub releases page, which
+    // doesn't host fork artifacts; until fork-tag fetching is wired up, multi-version
+    // slots stay on upstream tags only.
+    return std.mem.splitScalar(u8, shopify_filter_upstream_tags(b, tags_string), '\n');
+}
+
+// [shopify]
+fn shopify_filter_upstream_tags(b: *std.Build, tags_string: []const u8) []const u8 {
+    var filtered: std.ArrayListUnmanaged(u8) = .empty;
+    var it = std.mem.splitScalar(u8, tags_string, '\n');
+    while (it.next()) |tag| {
+        if (std.mem.indexOf(u8, tag, "-shopify") != null) continue;
+        filtered.appendSlice(b.allocator, tag) catch @panic("OOM");
+        filtered.append(b.allocator, '\n') catch @panic("OOM");
+    }
+    return filtered.items;
 }
 
 fn build_vortex_driver_zig(
