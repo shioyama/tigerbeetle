@@ -3,6 +3,17 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### CI
+
+- [#82](https://github.com/shop/tigerbeetle/pull/82)
+
+  Filter `X.Y.Z-shopifyN` tags from `build.zig`'s `release_history()` — the
+  iterator feeds `fetch_release()`, which downloads from upstream's GitHub
+  releases page where fork artifacts don't exist. Multi-version slots stay
+  on upstream tags until fork-tag fetching lands.
+
 ## TigerBeetle 0.17.0-shopify1
 
 Released: 2026-05-08
