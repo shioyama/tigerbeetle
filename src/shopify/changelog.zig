@@ -43,6 +43,23 @@ pub fn shopify_latest_version(shell: *Shell) ![]const u8 {
     };
 }
 
+// Return the fork release immediately preceding the one being cut (the second
+// `## TigerBeetle ...` header in SHOPIFY-CHANGELOG.md). Returns `null` when no
+// prior fork release exists, so the caller can fall back to the
+// upstream-derived previous (first fork release on a new upstream base).
+pub fn shopify_previous_version(shell: *Shell) !?[]const u8 {
+    const allocator = shell.arena.allocator();
+    const text = try shell.project_root.readFileAlloc(
+        allocator,
+        "SHOPIFY-CHANGELOG.md",
+        changelog_bytes_max,
+    );
+    return changelog_parse.extract_shopify_previous_version(text) catch |err| switch (err) {
+        error.NoPreviousRelease => null,
+        else => err,
+    };
+}
+
 // Validate SHOPIFY-CHANGELOG.md for release readiness and check that the
 // release tag base matches CHANGELOG.md.
 pub fn validate_shopify_release(

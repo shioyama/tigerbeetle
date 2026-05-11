@@ -5,6 +5,16 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ## TigerBeetle (unreleased)
 
+### Tooling
+
+- [#84](https://github.com/shop/tigerbeetle/pull/84)
+
+  In `--shopify` release builds, derive the multiversion bundling target from
+  the second `## TigerBeetle X.Y.Z-shopifyN` header in `SHOPIFY-CHANGELOG.md`
+  so `tag_multiversion` is fork-form (e.g. `0.17.0-shopify1`). `fetch_release`
+  resolves it from `.fork-bins/`. Falls through to the upstream-derived
+  previous on the first fork release for a new upstream base.
+
 ### CI
 
 - [#83](https://github.com/shop/tigerbeetle/pull/83)

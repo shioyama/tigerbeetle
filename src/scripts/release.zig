@@ -97,7 +97,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
         1 * MiB,
     );
     var changelog_iteratator = changelog.ChangelogIterator.init(changelog_text);
-    const release, const release_multiversion, const changelog_body = blk: {
+    const release, var release_multiversion, const changelog_body = blk: {
         if (cli_args.no_changelog) {
             assert(cli_args.devhub);
             assert(!cli_args.publish);
@@ -129,6 +129,20 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
             };
         }
     };
+
+    // [shopify] Prefer the prior fork release from SHOPIFY-CHANGELOG.md as the
+    // multiversion target. On the first fork release for a new upstream base,
+    // the fork changelog has no prior entry and we fall through to the
+    // upstream-derived previous.
+    const shopify_prior_tag: ?[]const u8 = if (cli_args.shopify)
+        try shopify_changelog.shopify_previous_version(shell)
+    else
+        null;
+    if (shopify_prior_tag) |prior_tag| {
+        const dash_idx = std.mem.indexOf(u8, prior_tag, "-shopify").?;
+        release_multiversion = try multiversion.Release.parse(prior_tag[0..dash_idx]);
+    }
+
     assert(multiversion.Release.less_than({}, release_multiversion, release));
 
     // Ensure we're building a version newer than the first multiversion release. That was
@@ -162,7 +176,9 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
             "{[major]}.{[minor]}.{[patch]}",
             release.triple(),
         ),
-        .tag_multiversion = try shell.fmt(
+        // [shopify] Fork-form tag (e.g. `0.17.0-shopify1`) when a prior fork
+        // release exists; otherwise the upstream-form triple.
+        .tag_multiversion = if (shopify_prior_tag) |t| t else try shell.fmt(
             "{[major]}.{[minor]}.{[patch]}",
             release_multiversion.triple(),
         ),
