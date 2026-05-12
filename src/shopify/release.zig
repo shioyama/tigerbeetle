@@ -245,9 +245,10 @@ pub fn build_artifacts(
     }
 
     // Upstream's tigerbeetle-x86_64-linux.zip only contains the tigerbeetle
-    // binary, so build tb-snapshot separately for the same target and stage it
-    // alongside in usr/bin/.
-    try shell.exec_zig("build tb-snapshot -Dtarget=x86_64-linux -Drelease=true", .{});
+    // binary, so stage tb-snapshot alongside it in usr/bin/. The preceding
+    // `build_tigerbeetle_target` run already produced zig-out/bin/tb-snapshot
+    // stamped with the correct release triples via the default install step
+    // (see src/shopify/tb_snapshot/build.zig).
     try Shell.copy_path(
         shell.project_root,
         "zig-out/bin/tb-snapshot",

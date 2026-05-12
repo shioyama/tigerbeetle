@@ -25,6 +25,16 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   falls through to the upstream-derived previous (e.g. `0.16.78`) instead of
   picking `0.17.0-shopifyN`, which would collide on `Release.value`.
 
+- [#87](https://github.com/shop/tigerbeetle/pull/87)
+
+  Fix `tb-snapshot` in `--shopify` release builds being stamped with
+  `client_release=65535.0.0` and rejected by real clusters as
+  `client_release_too_high`. `build_artifacts` was re-invoking
+  `zig build tb-snapshot` without `-Dconfig-release`, overwriting the
+  correctly-stamped binary produced by the preceding `build_tigerbeetle_target`
+  run. Drop the redundant rebuild and copy the already-correct binary
+  from `zig-out/bin/tb-snapshot` into the deb staging dir.
+
 - [#84](https://github.com/shop/tigerbeetle/pull/84)
 
   In `--shopify` release builds, derive the multiversion bundling target from
