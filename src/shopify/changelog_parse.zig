@@ -20,6 +20,21 @@ pub fn extract_shopify_latest_version(text: []const u8) error{
     return error.MissingChangelogEntry;
 }
 
+/// Returns the first released `## TigerBeetle X.Y.Z-shopifyN` version string in the
+/// changelog. Skips a leading `(unreleased)` header — different from
+/// `extract_shopify_latest_version`, which errors on it. Used by `upstream-merge`
+/// to recover the current upstream base from the most recent fork tag.
+pub fn extract_shopify_latest_released_version(text: []const u8) ?[]const u8 {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "## TigerBeetle ")) continue;
+        const version = line["## TigerBeetle ".len..];
+        if (std.mem.indexOf(u8, version, "unreleased") != null) continue;
+        return version;
+    }
+    return null;
+}
+
 /// Returns the most recent prior fork release whose upstream triple differs
 /// from the top entry's. Same-triple entries are skipped to avoid colliding
 /// on `Release.value` in the multiversion loader. `error.NoPreviousRelease`
@@ -63,6 +78,43 @@ pub fn extract_fork_version(text: []const u8) []const u8 {
     };
     const dash = std.mem.indexOfScalar(u8, version, '-') orelse return "";
     return version[dash + 1 ..];
+}
+
+test extract_shopify_latest_released_version {
+    try std.testing.expectEqualStrings(
+        "0.17.0-shopify1",
+        extract_shopify_latest_released_version(
+            \\# Shopify Changelog
+            \\
+            \\## TigerBeetle (unreleased)
+            \\
+            \\### Tooling
+            \\
+            \\- a change
+            \\
+            \\## TigerBeetle 0.17.0-shopify1
+            \\
+            \\Released: 2026-05-08
+        ).?,
+    );
+
+    try std.testing.expectEqualStrings(
+        "0.16.78-shopify4",
+        extract_shopify_latest_released_version(
+            \\## TigerBeetle 0.16.78-shopify4
+            \\
+            \\Released: 2026-04-16
+            \\
+            \\## TigerBeetle 0.16.78-shopify3
+        ).?,
+    );
+
+    try std.testing.expect(extract_shopify_latest_released_version("") == null);
+    try std.testing.expect(extract_shopify_latest_released_version(
+        \\## TigerBeetle (unreleased)
+        \\
+        \\- a change
+    ) == null);
 }
 
 test "extract_shopify_previous_version" {

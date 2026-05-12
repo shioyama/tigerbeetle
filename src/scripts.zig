@@ -23,6 +23,8 @@ const amqp = @import("./scripts/amqp.zig");
 
 // [shopify]
 const shopify_release = @import("./shopify/release.zig");
+// [shopify]
+const shopify_upstream_merge = @import("./shopify/release/upstream_merge.zig");
 
 pub fn log_fn(
     comptime message_level: std.log.Level,
@@ -46,6 +48,8 @@ const CLIArgs = union(enum) {
 
     // [shopify]
     shopify: void,
+    // [shopify]
+    @"upstream-merge": shopify_upstream_merge.CLIArgs,
 
     pub const help =
         \\Usage:
@@ -62,6 +66,8 @@ const CLIArgs = union(enum) {
         \\  zig build scripts -- devhub --sha=<commit>
         \\
         \\  zig build scripts -- release --sha=<commit>
+        \\
+        \\  zig build scripts -- upstream-merge [--continue]
         \\
         \\Options:
         \\
@@ -110,5 +116,7 @@ pub fn main() !void {
 
         // [shopify]
         .shopify => try shopify_release.main(shell, gpa),
+        // [shopify]
+        .@"upstream-merge" => |a| try shopify_upstream_merge.main(shell, gpa, a),
     }
 }

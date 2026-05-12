@@ -40,6 +40,14 @@ Released: 2026-05-13
   both staged binaries report `TigerBeetle version <shopify_version>`
   before building the `.deb`.
 
+- [#86](https://github.com/shop/tigerbeetle/pull/86)
+
+  Add `zig build scripts -- upstream-merge` to merge the next upstream tag into a
+  `shopify/upstream-X.Y.Z` branch and open a PR with the verbatim CHANGELOG.md
+  section as the body. Resume after manual conflict resolution with `--continue`.
+  Tidy's `[shopify]` prefix and changelog rules now filter on `@shopify.com`
+  author so upstream commits brought in by the merge don't trip the check.
+
 - [#84](https://github.com/shop/tigerbeetle/pull/84)
 
   In `--shopify` release builds, derive the multiversion bundling target from
