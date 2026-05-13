@@ -47,6 +47,7 @@ Keep markers visible in diffs — don't bury them in surrounding refactors.
 
 - Fork releases are tagged `X.Y.Z-shopifyN` (e.g., `0.17.0-shopify1`).
 - `build.zig`'s `release_history` reads tags via `git tag --merged HEAD^` to populate vortex's multi-version upgrade slots. CI provides tags via `.shopify-build/fetch-upstream-tags.sh`, which currently pins a list of upstream tags and will switch to fork tags once the first `0.17.0-shopifyN` ships.
+- When modifying release code (`src/shopify/release.zig`, `src/scripts/release.zig`, `.shopify-build/`), trigger a Buildkite build with `VALIDATE_RELEASE_BUILD=1` to run the `Validate release build` step on a non-`release/*` branch. The step rewrites `SHOPIFY-CHANGELOG.md`'s `(unreleased)` header in place so the build exercises the real release path.
 
 ## SHOPIFY-CHANGELOG.md structure
 

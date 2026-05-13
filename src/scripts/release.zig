@@ -28,6 +28,7 @@ const changelog = @import("./changelog.zig");
 // [shopify]
 const shopify_changelog = @import("../shopify/changelog.zig");
 const shopify_release = @import("../shopify/release.zig");
+const shopify_stdx = @import("../shopify/stdx.zig");
 
 const MiB = stdx.MiB;
 
@@ -72,6 +73,9 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
 
     // [shopify] Validate and pin the fork version from SHOPIFY-CHANGELOG.md.
     const shopify_version: ?[]const u8 = if (cli_args.shopify) blk: {
+        if (shopify_stdx.truthy(shell.env_get_option("VALIDATE_RELEASE_BUILD"))) {
+            try shopify_release.prepare_validation_release(shell);
+        }
         const v = try shopify_changelog.shopify_latest_version(shell);
         try shopify_changelog.validate_shopify_release(shell, v);
         break :blk v;

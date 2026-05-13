@@ -20,12 +20,18 @@ const shopify_changelog = @import("./changelog.zig");
 const changelog_bytes_max = 10 * stdx.MiB;
 const unreleased_header = "## TigerBeetle (unreleased)";
 
-pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
-    _ = gpa;
+const ReleasePrep = struct {
+    shopify_text: []const u8,
+    base_version: []const u8,
+    version: []const u8,
+    has_unreleased: bool,
+    next_n: u16,
+};
 
+fn read_release_prep(shell: *Shell) !ReleasePrep {
     const allocator = shell.arena.allocator();
 
-    var shopify_text = try shell.project_root.readFileAlloc(
+    const shopify_text = try shell.project_root.readFileAlloc(
         allocator,
         "SHOPIFY-CHANGELOG.md",
         changelog_bytes_max,
@@ -51,12 +57,65 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
     const next_n = next_shopify_n(shopify_text, base_version);
     const version = try shell.fmt("{s}-shopify{}", .{ base_version, next_n });
 
+    return .{
+        .shopify_text = shopify_text,
+        .base_version = base_version,
+        .version = version,
+        .has_unreleased = std.mem.indexOf(u8, shopify_text, unreleased_header) != null,
+        .next_n = next_n,
+    };
+}
+
+fn write_release_changelog(
+    shell: *Shell,
+    shopify_text: []const u8,
+    version: []const u8,
+) ![]const u8 {
+    const allocator = shell.arena.allocator();
+    const date_time = stdx.InstantUnix.now().date_time();
+    const today = try shell.fmt(
+        "{:0>4}-{:0>2}-{:0>2}",
+        .{ date_time.year, date_time.month, date_time.day },
+    );
+    const updated_text = try update_changelog_for_release(
+        allocator,
+        shopify_text,
+        version,
+        today,
+    );
+    try shell.project_root.writeFile(.{
+        .sub_path = "SHOPIFY-CHANGELOG.md",
+        .data = updated_text,
+    });
+    return updated_text;
+}
+
+/// Rewrite an `(unreleased)` header into a versioned, dated header in place,
+/// without committing. No-op if the changelog has no unreleased section.
+pub fn prepare_validation_release(shell: *Shell) !void {
+    const prep = try read_release_prep(shell);
+    if (!prep.has_unreleased) {
+        log.info("SHOPIFY-CHANGELOG.md has no unreleased section; skipping rewrite", .{});
+        return;
+    }
+    _ = try write_release_changelog(shell, prep.shopify_text, prep.version);
+    log.info("SHOPIFY-CHANGELOG.md finalized in-place as {s}", .{prep.version});
+}
+
+pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
+    _ = gpa;
+
+    const allocator = shell.arena.allocator();
+
+    const prep = try read_release_prep(shell);
+    var shopify_text = prep.shopify_text;
+    const version = prep.version;
+
     const stdout = std.io.getStdOut().writer();
     const stdin = std.io.getStdIn().reader();
 
-    const has_unreleased = std.mem.indexOf(u8, shopify_text, unreleased_header) != null;
-    if (!has_unreleased) {
-        if (next_n > 1) {
+    if (!prep.has_unreleased) {
+        if (prep.next_n > 1) {
             log.err("SHOPIFY-CHANGELOG.md has no unreleased section — nothing to release", .{});
             return error.NoUnreleasedSection;
         }
@@ -65,7 +124,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
             "No unreleased section in SHOPIFY-CHANGELOG.md.\n" ++
                 "This is the first release on upstream {s}. " ++
                 "Add an \"Upstream merge\" entry? [Y/n] ",
-            .{base_version},
+            .{prep.base_version},
         );
         const merge_answer = stdin.readUntilDelimiterAlloc(allocator, '\n', 256) catch "";
         if (merge_answer.len > 0 and merge_answer[0] != 'Y' and merge_answer[0] != 'y') {
@@ -84,21 +143,11 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
         return;
     }
 
-    const date_time = stdx.InstantUnix.now().date_time();
-    const today = try shell.fmt(
-        "{:0>4}-{:0>2}-{:0>2}",
-        .{ date_time.year, date_time.month, date_time.day },
-    );
-
     const branch = try shell.fmt("release/{s}", .{version});
     try shell.exec("git fetch origin --quiet", .{});
     try shell.exec("git switch --create {branch} origin/main", .{ .branch = branch });
 
-    const updated_text = try update_changelog_for_release(allocator, shopify_text, version, today);
-    try shell.project_root.writeFile(.{
-        .sub_path = "SHOPIFY-CHANGELOG.md",
-        .data = updated_text,
-    });
+    const updated_text = try write_release_changelog(shell, shopify_text, version);
 
     try shopify_changelog.validate_shopify_release(shell, version);
 

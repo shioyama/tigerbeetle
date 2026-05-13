@@ -5,6 +5,17 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ## TigerBeetle (unreleased)
 
+### CI
+
+- [#88](https://github.com/shop/tigerbeetle/pull/88)
+
+  Add `VALIDATE_RELEASE_BUILD` env var to force-run the `Validate release
+  build` step outside `release/*` branches. When truthy (`1`, `true`, `yes`),
+  the release script rewrites the `(unreleased)` header in
+  `SHOPIFY-CHANGELOG.md` in place with the synthesized next version + today's
+  date so the rest of the build exercises the real release path. The rewrite
+  is workspace-only; nothing is committed.
+
 ### Tooling
 
 - [#84](https://github.com/shop/tigerbeetle/pull/84)
