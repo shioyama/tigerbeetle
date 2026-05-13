@@ -33,7 +33,10 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   `zig build tb-snapshot` without `-Dconfig-release`, overwriting the
   correctly-stamped binary produced by the preceding `build_tigerbeetle_target`
   run. Drop the redundant rebuild and copy the already-correct binary
-  from `zig-out/bin/tb-snapshot` into the deb staging dir.
+  from `zig-out/bin/tb-snapshot` into the deb staging dir. Also add a
+  `--version` flag to `tb-snapshot` and assert in `build_artifacts` that
+  both staged binaries report `TigerBeetle version <shopify_version>`
+  before building the `.deb`.
 
 - [#84](https://github.com/shop/tigerbeetle/pull/84)
 
