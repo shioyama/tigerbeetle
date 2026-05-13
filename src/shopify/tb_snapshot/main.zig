@@ -35,6 +35,7 @@ const CLIArgs = struct {
         \\  --drain-pipeline      Connect to cluster to drain prepare pipeline (NACK safety)
         \\  --addresses=ADDRS     Cluster addresses (required with --drain-pipeline)
         \\  -h, --help            Show this help
+        \\  --version             Show version and exit
         \\
         \\Examples:
         \\  New cluster from snapshot:
@@ -55,7 +56,7 @@ pub fn main() !void {
 
     const gpa = gpa_instance.allocator();
 
-    try maybe_print_help(gpa);
+    try maybe_print_help_or_version(gpa);
 
     var arg_iterator = try std.process.argsWithAllocator(gpa);
     defer arg_iterator.deinit();
@@ -92,8 +93,8 @@ pub fn main() !void {
 // Other TB binaries (tigerbeetle, aof, scripts) shape their CLI as a `union(enum)` of
 // subcommands, which `stdx.flags` auto-handles `-h/--help` for. tb-snapshot has only one
 // operation, and `stdx.flags.parse_commands` asserts `len >= 2`, so a single-subcommand
-// union isn't expressible. We use a flat struct and scan for `--help` ourselves.
-fn maybe_print_help(gpa: std.mem.Allocator) !void {
+// union isn't expressible. We use a flat struct and scan for `--help`/`--version` ourselves.
+fn maybe_print_help_or_version(gpa: std.mem.Allocator) !void {
     var iter = try std.process.argsWithAllocator(gpa);
     defer iter.deinit();
 
@@ -101,6 +102,12 @@ fn maybe_print_help(gpa: std.mem.Allocator) !void {
     while (iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             std.io.getStdOut().writeAll(CLIArgs.help) catch std.process.exit(1);
+            std.process.exit(0);
+        }
+        if (std.mem.eql(u8, arg, "--version")) {
+            const stdout = std.io.getStdOut().writer();
+            std.fmt.format(stdout, "TigerBeetle version {}\n", .{constants.semver}) catch
+                std.process.exit(1);
             std.process.exit(0);
         }
     }

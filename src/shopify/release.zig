@@ -245,9 +245,10 @@ pub fn build_artifacts(
     }
 
     // Upstream's tigerbeetle-x86_64-linux.zip only contains the tigerbeetle
-    // binary, so build tb-snapshot separately for the same target and stage it
-    // alongside in usr/bin/.
-    try shell.exec_zig("build tb-snapshot -Dtarget=x86_64-linux -Drelease=true", .{});
+    // binary, so stage tb-snapshot alongside it in usr/bin/. The preceding
+    // `build_tigerbeetle_target` run already produced zig-out/bin/tb-snapshot
+    // stamped with the correct release triples via the default install step
+    // (see src/shopify/tb_snapshot/build.zig).
     try Shell.copy_path(
         shell.project_root,
         "zig-out/bin/tb-snapshot",
@@ -278,6 +279,8 @@ pub fn build_artifacts(
         .dest = go_client_dir,
     });
 
+    try assert_release_version(shell, pkg_dir, shopify_version);
+
     try shell.exec("dpkg-deb --build {staging} zig-out/shopify-dist/", .{
         .staging = pkg_dir,
     });
@@ -306,6 +309,51 @@ pub fn build_artifacts(
                 .{ path, @errorName(err) },
             );
         };
+    }
+}
+
+/// Asserts both staged binaries report `TigerBeetle version <shopify_version>...`
+/// and match each other byte-for-byte.
+fn assert_release_version(
+    shell: *Shell,
+    pkg_dir: []const u8,
+    shopify_version: []const u8,
+) !void {
+    const tigerbeetle_bin = try shell.fmt("{s}/usr/bin/tigerbeetle", .{pkg_dir});
+    const tb_snapshot_bin = try shell.fmt("{s}/usr/bin/tb-snapshot", .{pkg_dir});
+
+    const tigerbeetle_version = try shell.exec_stdout("{bin} version", .{
+        .bin = tigerbeetle_bin,
+    });
+    const tb_snapshot_version = try shell.exec_stdout("{bin} --version", .{
+        .bin = tb_snapshot_bin,
+    });
+
+    const expected_prefix = try shell.fmt(
+        "TigerBeetle version {s}",
+        .{shopify_version},
+    );
+
+    if (!std.mem.startsWith(u8, tigerbeetle_version, expected_prefix)) {
+        std.debug.panic(
+            "tigerbeetle binary stamped with the wrong release: " ++
+                "expected prefix '{s}', got '{s}'",
+            .{ expected_prefix, tigerbeetle_version },
+        );
+    }
+    if (!std.mem.startsWith(u8, tb_snapshot_version, expected_prefix)) {
+        std.debug.panic(
+            "tb-snapshot binary stamped with the wrong release: " ++
+                "expected prefix '{s}', got '{s}'",
+            .{ expected_prefix, tb_snapshot_version },
+        );
+    }
+    if (!std.mem.eql(u8, tigerbeetle_version, tb_snapshot_version)) {
+        std.debug.panic(
+            "tigerbeetle and tb-snapshot stamped with different releases: " ++
+                "tigerbeetle='{s}', tb-snapshot='{s}'",
+            .{ tigerbeetle_version, tb_snapshot_version },
+        );
     }
 }
 
