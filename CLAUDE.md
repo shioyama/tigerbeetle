@@ -43,11 +43,16 @@ Keep markers visible in diffs — don't bury them in surrounding refactors.
 - `SHOPIFY-CHANGELOG.md` — fork release notes, organized per fork release
 - `src/shopify/` — fork-specific Zig source (e.g., `shopify/tidy.zig`, `shopify/changelog.zig`, `shopify/release.zig`, `shopify/tb_snapshot/`). New fork logic goes here rather than as an upstream-file modification. Subdirectories are used to group related sources for fork-only tools — see `shopify/tb_snapshot/` for the canonical example.
 
-## Tags and versioning
+## Releasing
 
-- Fork releases are tagged `X.Y.Z-shopifyN` (e.g., `0.17.0-shopify1`).
-- `build.zig`'s `release_history` reads tags via `git tag --merged HEAD^` to populate vortex's multi-version upgrade slots. CI provides tags via `.shopify-build/fetch-upstream-tags.sh`, which currently pins a list of upstream tags and will switch to fork tags once the first `0.17.0-shopifyN` ships.
-- When modifying release code (`src/shopify/release.zig`, `src/scripts/release.zig`, `.shopify-build/`), trigger a Buildkite build with `VALIDATE_RELEASE_BUILD=1` to run the `Validate release build` step on a non-`release/*` branch. The step rewrites `SHOPIFY-CHANGELOG.md`'s `(unreleased)` header in place so the build exercises the real release path.
+Fork releases are tagged `X.Y.Z-shopifyN` (e.g., `0.17.0-shopify1`). There are two kinds, distinguished by whether `Release.value` advances:
+
+- **Server-touching changes** must piggy-back on an upstream `X.Y.Z` bump (e.g., `0.17.1-shopify1`). The upstream wire format has no fork-counter slot, so two builds with the same `X.Y.Z` are indistinguishable to the multiversion loader and cannot coexist in a cluster.
+- **Client/tooling-only changes** (e.g., `src/shopify/tb_snapshot/`, client patches) ship as same-`X.Y.Z` `-shopifyN` bumps (e.g., `0.17.0-shopify2`) — a package release with no `Release.value` advance.
+
+The release script picks the multiversion bundling target from `SHOPIFY-CHANGELOG.md` via `extract_shopify_previous_version`, which skips same-`X.Y.Z` prior entries to avoid `Release.value` collisions. When no different-triple prior fork tag exists, it falls back to upstream `CHANGELOG.md`'s previous (e.g., `0.17.0-shopify2` bundles `0.16.78`).
+
+When modifying release code (`src/shopify/release.zig`, `src/scripts/release.zig`, `.shopify-build/`), trigger a Buildkite build with `VALIDATE_RELEASE_BUILD=1` to run the `Validate release build` step on a non-`release/*` branch. The step rewrites `SHOPIFY-CHANGELOG.md`'s `(unreleased)` header in place so the build exercises the real release path.
 
 ## SHOPIFY-CHANGELOG.md structure
 

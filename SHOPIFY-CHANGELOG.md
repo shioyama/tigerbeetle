@@ -18,6 +18,13 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Tooling
 
+- [#90](https://github.com/shop/tigerbeetle/pull/90)
+
+  `extract_shopify_previous_version` now walks past prior fork entries whose
+  upstream triple matches the top entry's, so a `0.17.0-shopifyN+1` release
+  falls through to the upstream-derived previous (e.g. `0.16.78`) instead of
+  picking `0.17.0-shopifyN`, which would collide on `Release.value`.
+
 - [#84](https://github.com/shop/tigerbeetle/pull/84)
 
   In `--shopify` release builds, derive the multiversion bundling target from
