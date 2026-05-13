@@ -20,29 +20,34 @@ pub fn extract_shopify_latest_version(text: []const u8) error{
     return error.MissingChangelogEntry;
 }
 
-/// Returns the second `## TigerBeetle X.Y.Z-shopifyN` header in the changelog,
-/// i.e. the fork release immediately preceding the one being cut. Used by the
-/// release script to pick the multiversion bundling target.
+/// Returns the most recent prior fork release whose upstream triple differs
+/// from the top entry's. Same-triple entries are skipped to avoid colliding
+/// on `Release.value` in the multiversion loader. `error.NoPreviousRelease`
+/// means the caller should fall back to `CHANGELOG.md`'s upstream-derived
+/// previous.
 pub fn extract_shopify_previous_version(text: []const u8) error{
     UnreleasedChangelog,
     MissingChangelogEntry,
     NoPreviousRelease,
 }![]const u8 {
     var lines = std.mem.splitScalar(u8, text, '\n');
-    var seen_current = false;
+    var current_triple: ?[]const u8 = null;
     while (lines.next()) |line| {
         if (!std.mem.startsWith(u8, line, "## ")) continue;
         if (std.mem.indexOf(u8, line, "unreleased") != null) {
             return error.UnreleasedChangelog;
         }
         if (!std.mem.startsWith(u8, line, "## TigerBeetle ")) continue;
-        if (!seen_current) {
-            seen_current = true;
-            continue;
+        const version = line["## TigerBeetle ".len..];
+        const dash_idx = std.mem.indexOf(u8, version, "-shopify") orelse continue;
+        const triple = version[0..dash_idx];
+        if (current_triple) |cur| {
+            if (!std.mem.eql(u8, cur, triple)) return version;
+        } else {
+            current_triple = triple;
         }
-        return line["## TigerBeetle ".len..];
     }
-    if (!seen_current) return error.MissingChangelogEntry;
+    if (current_triple == null) return error.MissingChangelogEntry;
     return error.NoPreviousRelease;
 }
 
@@ -89,6 +94,26 @@ test "extract_shopify_previous_version" {
         \\
         \\Released: 2026-04-15
     ));
+
+    // Same-triple prior entry is skipped: `0.17.0-shopify2` can't bundle
+    // `0.17.0-shopify1` because they collide on `Release.value`.
+    try std.testing.expectError(error.NoPreviousRelease, extract_shopify_previous_version(
+        \\## TigerBeetle 0.17.0-shopify2
+        \\
+        \\## TigerBeetle 0.17.0-shopify1
+    ));
+
+    // Walks past same-triple entries to reach a different-triple prior.
+    try std.testing.expectEqualStrings(
+        "0.17.0-shopify1",
+        try extract_shopify_previous_version(
+            \\## TigerBeetle 0.17.1-shopify2
+            \\
+            \\## TigerBeetle 0.17.1-shopify1
+            \\
+            \\## TigerBeetle 0.17.0-shopify1
+        ),
+    );
 
     try std.testing.expectError(error.MissingChangelogEntry, extract_shopify_previous_version(""));
 }
