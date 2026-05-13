@@ -1,9 +1,12 @@
 //! Tidy checks for Shopify fork conventions.
 //!
-//!   1. Every commit on the PR branch must be prefixed with `[shopify]`.
-//!   2. If any non-test `src/` file changed, `SHOPIFY-CHANGELOG.md` must be updated in
-//!      the same PR. A commit whose message contains `skip-changelog-check` exempts
-//!      its own changes only — other commits in the PR still trigger the check.
+//!   1. Every commit on the PR branch authored by `@shopify.com` must be prefixed
+//!      with `[shopify]`. Non-Shopify-authored commits (e.g. upstream commits brought
+//!      in by an `upstream-merge` PR) are exempt.
+//!   2. If any non-test `src/` file changed in a Shopify-authored commit,
+//!      `SHOPIFY-CHANGELOG.md` must be updated in the same PR. A commit whose message
+//!      contains `skip-changelog-check` exempts its own changes only — other commits
+//!      in the PR still trigger the check.
 //!   3. `SHOPIFY-CHANGELOG.md` is well-formed — every entry sits under a section
 //!      and carries a fork-PR link.
 //!   4. Functions in `src/shopify/` use snake_case, matching TigerBeetle's convention
@@ -49,35 +52,39 @@ test "tidy shopify fork" {
         return;
     };
 
-    // Check 1: All PR commits must be prefixed with [shopify].
-    {
-        const log_output = try shell.exec_stdout("git log --format=%s FETCH_HEAD..HEAD", .{});
-        var has_bad_commits = false;
-        var lines = mem.splitScalar(u8, log_output, '\n');
-        while (lines.next()) |subject| {
-            if (subject.len == 0) continue;
-            if (!mem.startsWith(u8, subject, "[shopify]")) {
-                std.debug.print("error: commit missing [shopify] prefix: {s}\n", .{subject});
-                has_bad_commits = true;
-            }
-        }
-        if (has_bad_commits) return error.BadCommitPrefix;
-    }
-
-    // Check 2: If non-test src/ files changed, SHOPIFY-CHANGELOG.md must be updated.
-    // Per-commit: a commit whose message contains `skip-changelog-check` exempts
-    // its own src/ changes, but other commits' changes still trigger the check.
+    // Checks 1 and 2 share a per-commit walk: subject prefix and src/-vs-changelog
+    // accounting both gate on author email being `@shopify.com`, so an upstream-merge
+    // PR doesn't trip on upstream-authored commits brought in via the merge commit.
     {
         const shas = try shell.exec_stdout("git log --format=%H FETCH_HEAD..HEAD", .{});
+        var has_bad_commits = false;
         var has_unskipped_src_changes = false;
         var changelog_changed = false;
         var sha_lines = mem.splitScalar(u8, shas, '\n');
         while (sha_lines.next()) |sha| {
             if (sha.len == 0) continue;
-            const msg = try shell.exec_stdout(
-                "git log -1 --format=%B {sha}",
+
+            // %ae on the first line, raw subject + body (%B) after — one git call.
+            const meta = try shell.exec_stdout(
+                "git log -1 --format=%ae%n%B {sha}",
                 .{ .sha = sha },
             );
+            const first_newline = mem.indexOfScalar(u8, meta, '\n') orelse meta.len;
+            const author_email = meta[0..first_newline];
+            const msg = if (first_newline < meta.len) meta[first_newline + 1 ..] else "";
+            const subject_end = mem.indexOfScalar(u8, msg, '\n') orelse msg.len;
+            const subject = msg[0..subject_end];
+
+            const shopify_authored = mem.endsWith(u8, author_email, "@shopify.com");
+
+            // Check 1: [shopify] prefix, only for Shopify-authored commits.
+            if (shopify_authored and !mem.startsWith(u8, subject, "[shopify]")) {
+                std.debug.print("error: commit missing [shopify] prefix: {s}\n", .{subject});
+                has_bad_commits = true;
+            }
+
+            // Check 2: src/ vs changelog. `skip-changelog-check` exempts a commit's
+            // src/ changes only; other commits in the PR still trigger the check.
             const skipped = mem.indexOf(u8, msg, "skip-changelog-check") != null;
             if (skipped) {
                 std.debug.print(
@@ -97,11 +104,13 @@ test "tidy shopify fork" {
                     continue;
                 }
                 if (skipped) continue;
+                if (!shopify_authored) continue;
                 if (mem.startsWith(u8, path, "src/") and !is_test_file(path)) {
                     has_unskipped_src_changes = true;
                 }
             }
         }
+        if (has_bad_commits) return error.BadCommitPrefix;
         if (has_unskipped_src_changes and !changelog_changed) {
             std.debug.print(
                 "error: non-test src/ files changed but " ++
