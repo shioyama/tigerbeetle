@@ -97,7 +97,7 @@ steps:
       - ./.zig-install/zig build clients:c:sample
   - label: ':package: Validate release build'
     timeout: 30m
-    branches: 'release/*'
+    if: build.branch =~ /^release\// || build.env("VALIDATE_RELEASE_BUILD") =~ /^(?i)(1|true|yes)$/
     git:
       history: full
     cache:
