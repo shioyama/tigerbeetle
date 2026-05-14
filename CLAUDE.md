@@ -37,6 +37,17 @@ Fork-specific lines inside upstream files are marked with `// [shopify]`. Exampl
 
 Keep markers visible in diffs — don't bury them in surrounding refactors.
 
+## Claiming values in shared enums and bitfields
+
+When the fork needs to add a value to a numbering shared with upstream (flag bits, operation codes) pick from the **high end of the type's range and work backwards** (bit 63 down for a `u64`; 255 down for an `enum(u8)`). Upstream conventionally grows from the low end, so working inward from the top maximises the gap before a rebase collides with us.
+
+Touch-points (non-exhaustive):
+- `SuperBlockHeader.flags` (`u64`) — fork bits at 63 down.
+- `vsr.Operation` (`src/vsr.zig`) and `tb.Operation` (`src/tigerbeetle.zig`), both `enum(u8)` — fork ops at 255 down.
+- `AccountFlags`, `TransferFlags`, `AccountFilterFlags`, `QueryFilterFlags` in `src/tigerbeetle.zig` — fork bits at the high end of the `padding` tail.
+
+Re-check each fork-claimed value on every upstream merge.
+
 ## Fork-only paths
 
 - `.shopify-build/` — Buildkite CI pipeline, scripts, `VERSION` marker
