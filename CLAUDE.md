@@ -37,6 +37,17 @@ Fork-specific lines inside upstream files are marked with `// [shopify]`. Exampl
 
 Keep markers visible in diffs — don't bury them in surrounding refactors.
 
+## Claiming values in shared enums and bitfields
+
+When the fork needs to add a value to a numbering shared with upstream (flag bits, operation codes) pick from the **high end of the type's range and work backwards** (bit 63 down for a `u64`; 255 down for an `enum(u8)`). Upstream conventionally grows from the low end, so working inward from the top maximises the gap before a rebase collides with us.
+
+Touch-points (non-exhaustive):
+- `SuperBlockHeader.flags` (`u64`) — fork bits at 63 down.
+- `vsr.Operation` (`src/vsr.zig`) and `tb.Operation` (`src/tigerbeetle.zig`), both `enum(u8)` — fork ops at 255 down.
+- `AccountFlags`, `TransferFlags`, `AccountFilterFlags`, `QueryFilterFlags` in `src/tigerbeetle.zig` — fork bits at the high end of the `padding` tail.
+
+Re-check each fork-claimed value on every upstream merge.
+
 ## Fork-only paths
 
 - `.shopify-build/` — Buildkite CI pipeline, scripts, `VERSION` marker
@@ -78,4 +89,4 @@ Rules the validator enforces (keep your first push green):
 - The bullet line must be followed by a blank line, and the description paragraph(s) must be indented at least two spaces.
 - Section names are not enforced
 
-Chicken-and-egg on PR number: PRs and issues share a counter, so predict the next with `gh api 'repos/shop/tigerbeetle/issues?state=all&per_page=1' --jq '.[0].number'` and add 1. If you guess wrong, amend the link before merge — the validator only requires *some* fork-PR URL, not that it resolves.
+PR number for the changelog: check whether the current branch has an open PR with `gh pr list --repo shop/tigerbeetle --head "$(git branch --show-current)" --json number --jq '.[0].number'`. If it returns a number, use it. If it returns nothing, leave the changelog's PR link blank and fill in the real number after opening the PR — the validator requires the URL on the bullet line, so this has to be done before the final push. Don't predict the next PR by counting up: PR and issue counters share a space, so the +1 guess is wrong as often as it's right.
