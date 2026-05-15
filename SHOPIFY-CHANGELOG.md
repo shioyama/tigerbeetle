@@ -19,6 +19,16 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   the `shopify-release` release script) instead of calling `gh pr create`,
   letting the author review and edit the PR before submitting.
 
+- [#98](https://github.com/shop/tigerbeetle/pull/98)
+
+  Auto-tag fork releases from a new GitHub Actions workflow
+  (`.github/workflows/auto-tag.yml`). Fires when a `release/X.Y.Z-shopifyN`
+  PR merges into `main`; verifies the branch version matches the top
+  `## TigerBeetle ...` header in `SHOPIFY-CHANGELOG.md` and pushes the tag.
+  The tag push then triggers the shopify-build publish pipeline. Lives in
+  GH Actions rather than shopify-build because the latter is read-only on
+  the repo.
+
 ## TigerBeetle 0.17.0-shopify2
 
 Released: 2026-05-13

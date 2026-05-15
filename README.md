@@ -91,7 +91,7 @@ $ ./zig/zig build scripts -- shopify-release
 
 The script reads `SHOPIFY-CHANGELOG.md` and `CHANGELOG.md`, computes the next `X.Y.Z-shopifyN`, prompts to confirm, then creates a `release/X.Y.Z-shopifyN` branch, finalizes the `(unreleased)` section in `SHOPIFY-CHANGELOG.md`, commits, pushes, and opens a PR.
 
-After merging, *you must create a release (with a new tag of the form `X.Y.Z-shopifyN`) to trigger the publish pipeline*. Doing so will build and publish the new version to Cloudsmith. Create the release via the Github release page, pasting in the changelog entry from `SHOPIFY-CHANGELOG.md` (there is no automation for this).
+Once the PR merges to `main`, the `Auto-tag fork releases` GitHub Actions workflow (`.github/workflows/auto-tag.yml`) fires on the closed-and-merged PR, verifies the `release/X.Y.Z-shopifyN` branch name matches the top `## TigerBeetle …` header in `SHOPIFY-CHANGELOG.md`, and pushes the tag. The tag push then triggers the Cloudsmith publish pipeline in shopify-build.
 
 ### Validating release-pipeline changes off-branch
 

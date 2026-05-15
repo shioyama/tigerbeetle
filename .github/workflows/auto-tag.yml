@@ -1,0 +1,33 @@
+name: Auto-tag fork releases
+
+# When a release/X.Y.Z-shopifyN PR merges into main, push the matching tag —
+# shopify-build picks it up to fire the publish pipeline.
+
+permissions:
+  contents: write
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  auto-tag:
+    if: >
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+      - env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          version="${HEAD_REF#release/}"
+          top=$(grep -oE '^## TigerBeetle [0-9]+\.[0-9]+\.[0-9]+-shopify[0-9]+' \
+            SHOPIFY-CHANGELOG.md | head -n1 | awk '{print $NF}')
+          [ "$version" = "$top" ] || { echo "version mismatch: branch=$version changelog=$top" >&2; exit 1; }
+          git tag "$version"
+          git push origin "refs/tags/$version"
