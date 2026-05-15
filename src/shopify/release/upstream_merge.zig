@@ -1,6 +1,6 @@
 //! `zig build scripts -- upstream-merge` — merge the next upstream TigerBeetle tag
-//! into a fork branch and open a PR whose body is the verbatim CHANGELOG.md section
-//! for that tag.
+//! into a fork branch and open the GitHub compare page pre-filled with the verbatim
+//! CHANGELOG.md section for that tag, so the author can review and submit the PR.
 //!
 //! Tag selection: the latest released `X.Y.Z-shopifyN` in SHOPIFY-CHANGELOG.md gives
 //! the current upstream base `X.Y.Z`. The next tag to merge is `X.Y.(Z+1)` if upstream
@@ -21,11 +21,11 @@ const stdx = @import("stdx");
 
 const Shell = @import("../../shell.zig");
 const changelog_parse = @import("../changelog_parse.zig");
+const shopify_github = @import("../github.zig");
 const upstream_changelog = @import("../../scripts/changelog.zig");
 const Release = @import("../../multiversion.zig").Release;
 
 const upstream_url = "https://github.com/tigerbeetle/tigerbeetle.git";
-const fork_repo = "shop/tigerbeetle";
 const state_file = ".git/SHOPIFY_UPSTREAM_MERGE";
 const changelog_bytes_max = 10 * stdx.MiB;
 
@@ -239,11 +239,7 @@ fn finalize(
     }
 
     const pr_title = try shell.fmt("Merge upstream {s}", .{target});
-    try shell.exec_options(
-        .{ .stdin_slice = body },
-        "gh pr create --repo {repo} --base main --title {title} --body-file -",
-        .{ .repo = fork_repo, .title = pr_title },
-    );
+    try shopify_github.open_pr_compare(shell, allocator, branch, pr_title, body);
 
     shell.project_root.deleteFile(state_file) catch |err| switch (err) {
         error.FileNotFound => {},

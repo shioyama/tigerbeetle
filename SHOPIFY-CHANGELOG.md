@@ -13,6 +13,12 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   symmetry with `upstream-merge` and to make the verb explicit. Invoked via
   `zig build scripts -- shopify-release`.
 
+- [#95](https://github.com/shop/tigerbeetle/pull/95)
+
+  `upstream-merge` now opens the GitHub compare page in the browser (matching
+  the `shopify-release` release script) instead of calling `gh pr create`,
+  letting the author review and edit the PR before submitting.
+
 ## TigerBeetle 0.17.0-shopify2
 
 Released: 2026-05-13
