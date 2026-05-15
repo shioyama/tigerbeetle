@@ -47,8 +47,7 @@ const CLIArgs = union(enum) {
     amqp: amqp.CLIArgs,
 
     // [shopify]
-    shopify: void,
-    // [shopify]
+    @"shopify-release": void,
     @"upstream-merge": shopify_upstream_merge.CLIArgs,
 
     pub const help =
@@ -115,8 +114,7 @@ pub fn main() !void {
         .amqp => |args_amqp| try amqp.main(shell, gpa, args_amqp),
 
         // [shopify]
-        .shopify => try shopify_release.main(shell, gpa),
-        // [shopify]
+        .@"shopify-release" => try shopify_release.main(shell, gpa),
         .@"upstream-merge" => |a| try shopify_upstream_merge.main(shell, gpa, a),
     }
 }

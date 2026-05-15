@@ -18,13 +18,13 @@ Use the bundled `./zig/zig` binary. Run `./zig/download.sh` to fetch it.
 Main commands:
 
 ```console
-$ ./zig/zig build                           # build tigerbeetle
-$ ./zig/zig build test                      # run the full suite
-$ ./zig/zig build test -- tidy              # scope by name (e.g. the fork tidy checks)
-$ ./zig/zig build check                     # fast compile-only check
-$ ./zig/zig build tb-snapshot               # build the fork-only snapshot tool
-$ ./zig/zig build scripts -- shopify        # open a PR to publish a fork version
-$ ./zig/zig build scripts -- upstream-merge # merge next upstream version into `main`
+$ ./zig/zig build                            # build tigerbeetle
+$ ./zig/zig build test                       # run the full suite
+$ ./zig/zig build test -- tidy               # scope by name (e.g. the fork tidy checks)
+$ ./zig/zig build check                      # fast compile-only check
+$ ./zig/zig build tb-snapshot                # build the fork-only snapshot tool
+$ ./zig/zig build scripts -- shopify-release # open a PR to publish a fork version
+$ ./zig/zig build scripts -- upstream-merge  # merge next upstream version into `main`
 ```
 
 There are two Shopify Build pipelines for the fork:
@@ -86,7 +86,7 @@ If you're not sure which kind your change is: anything that runs inside `tigerbe
 ### Cutting a fork release
 
 ```console
-$ ./zig/zig build scripts -- shopify
+$ ./zig/zig build scripts -- shopify-release
 ```
 
 The script reads `SHOPIFY-CHANGELOG.md` and `CHANGELOG.md`, computes the next `X.Y.Z-shopifyN`, prompts to confirm, then creates a `release/X.Y.Z-shopifyN` branch, finalizes the `(unreleased)` section in `SHOPIFY-CHANGELOG.md`, commits, pushes, and opens a PR.
