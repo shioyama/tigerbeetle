@@ -1,7 +1,7 @@
 //! Shopify fork release helpers.
 //!
 //! - `main`: interactive release prep script invoked via
-//!   `zig build scripts -- shopify`. Determines the next version
+//!   `zig build scripts -- shopify-release`. Determines the next version
 //!   from SHOPIFY-CHANGELOG.md + CHANGELOG.md, creates a release branch,
 //!   updates the changelog, and opens a pre-filled PR.
 //! - `build_artifacts`: called from `scripts/release.zig` when `--shopify`

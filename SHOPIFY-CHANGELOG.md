@@ -3,6 +3,16 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Tooling
+
+- [#92](https://github.com/shop/tigerbeetle/pull/92)
+
+  Rename the fork release subcommand from `shopify` to `shopify-release` for
+  symmetry with `upstream-merge` and to make the verb explicit. Invoked via
+  `zig build scripts -- shopify-release`.
+
 ## TigerBeetle 0.17.0-shopify2
 
 Released: 2026-05-13
