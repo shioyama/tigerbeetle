@@ -24,10 +24,11 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   Auto-tag fork releases from a new GitHub Actions workflow
   (`.github/workflows/auto-tag.yml`). Fires when a `release/X.Y.Z-shopifyN`
   PR merges into `main`; verifies the branch version matches the top
-  `## TigerBeetle ...` header in `SHOPIFY-CHANGELOG.md` and pushes the tag.
-  The tag push then triggers the shopify-build publish pipeline. Lives in
-  GH Actions rather than shopify-build because the latter is read-only on
-  the repo.
+  `## TigerBeetle ...` header in `SHOPIFY-CHANGELOG.md`, pushes the tag,
+  and creates a GitHub Release whose body is the matching changelog
+  section. The tag push then triggers the shopify-build publish pipeline.
+  Lives in GH Actions rather than shopify-build because the latter is
+  read-only on the repo.
 
 ## TigerBeetle 0.17.0-shopify2
 

@@ -23,11 +23,18 @@ jobs:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
       - env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           version="${HEAD_REF#release/}"
           top=$(grep -oE '^## TigerBeetle [0-9]+\.[0-9]+\.[0-9]+-shopify[0-9]+' \
             SHOPIFY-CHANGELOG.md | head -n1 | awk '{print $NF}')
           [ "$version" = "$top" ] || { echo "version mismatch: branch=$version changelog=$top" >&2; exit 1; }
+          notes=$(awk -v hdr="## TigerBeetle $version" '
+            $0 == hdr { capture = 1; next }
+            capture && /^## TigerBeetle / { exit }
+            capture { print }
+          ' SHOPIFY-CHANGELOG.md)
           git tag "$version"
           git push origin "refs/tags/$version"
+          gh release create "$version" --notes "$notes"
