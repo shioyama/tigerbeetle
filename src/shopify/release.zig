@@ -9,13 +9,13 @@
 //!   preceding upstream build.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const log = std.log;
 const stdx = @import("stdx");
 
 const Shell = @import("../shell.zig");
 const ChangelogIterator = @import("../scripts/changelog.zig").ChangelogIterator;
 const shopify_changelog = @import("./changelog.zig");
+const shopify_github = @import("./github.zig");
 
 const changelog_bytes_max = 10 * stdx.MiB;
 const unreleased_header = "## TigerBeetle (unreleased)";
@@ -159,27 +159,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
     const changelog_body = extract_changelog_body(updated_text, version);
 
     const pr_title = try shell.fmt("Release {s}", .{version});
-    var url_buf = std.ArrayList(u8).init(allocator);
-    const url_writer = url_buf.writer();
-    try url_writer.writeAll("https://github.com/shop/tigerbeetle/compare/main...");
-    try query_percent_encode(url_writer, branch);
-    try url_writer.writeAll("?expand=1&title=");
-    try query_percent_encode(url_writer, pr_title);
-    if (changelog_body.len > 0) {
-        try url_writer.writeAll("&body=");
-        try query_percent_encode(url_writer, changelog_body);
-    }
-    const url = url_buf.items;
-
-    log.info("opening PR: {s}", .{url});
-
-    switch (builtin.os.tag) {
-        .macos => try shell.exec("open {url}", .{ .url = url }),
-        .linux => try shell.exec("xdg-open {url}", .{ .url = url }),
-        else => {
-            try stdout.print("Open this URL to create the PR:\n{s}\n", .{url});
-        },
-    }
+    try shopify_github.open_pr_compare(shell, allocator, branch, pr_title, changelog_body);
 }
 
 /// Build the Shopify fork artifacts (the `.deb` package). Called from
@@ -440,29 +420,6 @@ fn extract_changelog_body(text: []const u8, version: []const u8) []const u8 {
         text.len;
 
     return std.mem.trim(u8, text[body_start..body_end], "\n");
-}
-
-fn query_percent_encode(writer: anytype, input: []const u8) !void {
-    try std.Uri.Component.percentEncode(writer, input, is_unreserved);
-}
-
-fn is_unreserved(c: u8) bool {
-    return switch (c) {
-        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => true,
-        else => false,
-    };
-}
-
-test "query_percent_encode" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-
-    try query_percent_encode(buf.writer(), "Release 0.16.78-shopify4");
-    try std.testing.expectEqualStrings("Release%200.16.78-shopify4", buf.items);
-
-    buf.clearRetainingCapacity();
-    try query_percent_encode(buf.writer(), "### Patches\n\n- a change");
-    try std.testing.expectEqualStrings("%23%23%23%20Patches%0A%0A-%20a%20change", buf.items);
 }
 
 test "extract_changelog_body" {
