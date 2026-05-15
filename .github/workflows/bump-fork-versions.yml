@@ -1,0 +1,58 @@
+name: Bump fork-versions
+
+# After auto-tag pushes a 0.*-shopify* tag, open a PR adding the tag to
+# .shopify-build/fork-versions.txt so vortex's multi-version slots can include
+# it. Merging the PR is the human gate on "Cloudsmith publish succeeded" —
+# tidy check 5 fails any other PR opened in the meantime, surfacing the signal.
+#
+# Triggered via workflow_run rather than `push: tags` because tags pushed with
+# the default GITHUB_TOKEN (from auto-tag.yml) don't trigger downstream events.
+
+permissions:
+  contents: write
+  pull-requests: write
+
+on:
+  workflow_run:
+    workflows: ["Auto-tag fork releases"]
+    types: [completed]
+
+jobs:
+  bump:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(grep -oE '^## TigerBeetle [0-9]+\.[0-9]+\.[0-9]+-shopify[0-9]+' \
+            SHOPIFY-CHANGELOG.md | head -n1 | awk '{print $NF}')
+          [ -n "$version" ] || { echo "no released fork version in SHOPIFY-CHANGELOG.md" >&2; exit 1; }
+          branch="auto/bump-fork-versions-$version"
+          if gh pr list --head "$branch" --json number --jq '.[0].number' | grep -q .; then
+            echo "PR already open for $branch"
+            exit 0
+          fi
+          expected=$(git tag --merged HEAD --sort=-committerdate | { grep -- '-shopify' || true; } | head -n 4)
+          [ -n "$expected" ] || { echo "no -shopify tags reachable from HEAD" >&2; exit 1; }
+          if [ "$expected" = "$(cat .shopify-build/fork-versions.txt)" ]; then
+            echo "fork-versions.txt already up to date"
+            exit 0
+          fi
+          printf '%s\n' "$expected" > .shopify-build/fork-versions.txt
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git switch --create "$branch"
+          git add .shopify-build/fork-versions.txt
+          git commit -m "[shopify] Bump fork-versions.txt for $version"
+          git push -u origin "$branch"
+          gh pr create \
+            --title "[shopify] Bump fork-versions.txt for $version" \
+            --body "Auto-generated after the \`$version\` tag was pushed. Merging keeps \`.shopify-build/fork-versions.txt\` in sync with the four most recent fork tags reachable from \`main\`, which \`fetch-fork-binaries.sh\` reads to stage fork binaries for vortex's multi-version slots. Verify the \`$version\` \`.deb\` is published to Cloudsmith before merging." \
+            --base main
