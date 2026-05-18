@@ -108,10 +108,10 @@ pub fn main() !void {
 
     const gpa = gpa_instance.allocator();
 
-    var args = try std.process.argsWithAllocator(gpa);
-    defer args.deinit();
+    var flags = stdx.Flags.init(gpa);
+    defer flags.deinit(gpa);
 
-    const cli_args = stdx.flags(&args, CLIArgs);
+    const cli_args = flags.parse(CLIArgs);
     if (cli_args.lite and cli_args.performance) {
         return vsr.fatal(.cli, "--lite and --performance are mutually exclusive", .{});
     }
@@ -163,6 +163,12 @@ pub fn main() !void {
     }
     if (cli_args.requests_max) |requests_max| {
         options.requests_max = requests_max;
+    }
+
+    if (options.replica_missing_until_request != null and
+        options.requests_max < options.replica_missing_until_request.?)
+    {
+        return vsr.fatal(.cli, "--requests-max < --replica-missing-until-request", .{});
     }
 
     log.info(
@@ -282,10 +288,28 @@ pub fn main() !void {
         if (requests_done and upgrades_done) break;
     }
 
-    if (cli_args.lite or
-        (cli_args.performance and cli_args.replica_missing_until_request == null))
-    {
+    if (cli_args.lite) {
         // Don't care about convergence.
+    } else if (cli_args.performance) {
+        assert(requests_done and upgrades_done);
+
+        var core = full_core(
+            simulator.options.cluster.replica_count,
+            simulator.options.cluster.standby_count,
+        );
+        if (cli_args.replica_missing) |replica_missing| {
+            // If replica is permanently missing then exclude it from the core.
+            if (cli_args.replica_missing_until_request == null) core.unset(replica_missing);
+        }
+        simulator.transition_to_liveness_mode(core);
+
+        tick = 0;
+        while (tick < cli_args.ticks_max_convergence) : (tick += 1) {
+            simulator.tick();
+            tick_total += 1;
+            if (simulator.pending() == null) break;
+        }
+        assert(simulator.pending() == null);
     } else {
         const core = if (requests_done and upgrades_done)
             // Liveness: a core set of replicas is up and fully connected. The rest of the replicas
@@ -832,7 +856,7 @@ pub const Simulator = struct {
         if (simulator.options.replica_missing_until_request) |request| {
             if (simulator.requests_replied >= request) {
                 simulator.options.replica_missing_until_request = null;
-                simulator.replica_crash_stability[simulator.options.replica_missing.?] = 1;
+                simulator.replica_restart(simulator.options.replica_missing.?, false);
             }
         }
     }
@@ -898,7 +922,7 @@ pub const Simulator = struct {
 
     // If a primary ends up being outside of a core, and is only partially connected to the core,
     // the core might fail to converge, as parts of the repair protocol rely on primary-sent
-    // `.start_view_change` messages. Until we fix this issue, we special-case this scenario in
+    // `.exit_view` messages. Until we fix this issue, we special-case this scenario in
     // VOPR and don't treat it as a liveness failure.
     //
     // TODO: make sure that .recovering_head replicas can transition to normal even without direct
@@ -1035,7 +1059,7 @@ pub const Simulator = struct {
                                 replica.superblock.working.view_headers_all[0..headers_count];
                             for (headers) |*header| {
                                 if (header.op == op) {
-                                    break :header switch (vsr.Headers.dvc_header_type(header)) {
+                                    break :header switch (vsr.Headers.jv_header_type(header)) {
                                         .valid => header,
                                         .blank => null,
                                     };
@@ -1104,7 +1128,7 @@ pub const Simulator = struct {
 
         // Check whether any of the uncommitted headers is corrupted on more than a nack
         // quorum of replicas. If so, the cluster cannot initiate repair or commit (see the
-        // awaiting_repair and complete_invalid cases in the DVCQuorum).
+        // awaiting_repair and complete_invalid cases in the JVQuorum).
         const nack_quorum = vsr.quorums(replica_count).nack_prepare;
         for (cluster_commit_max..cluster_op_head + 1) |op| {
             if (replicas_missing_ops[op - cluster_op_repair_min].count() >= nack_quorum) {
