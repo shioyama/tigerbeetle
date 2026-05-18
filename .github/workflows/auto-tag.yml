@@ -35,6 +35,8 @@ jobs:
             capture && /^## TigerBeetle / { exit }
             capture { print }
           ' SHOPIFY-CHANGELOG.md)
-          git tag "$version"
-          git push origin "refs/tags/$version"
-          gh release create "$version" --notes "$notes"
+          [ -n "$notes" ] || { echo "no release notes extracted for $version" >&2; exit 1; }
+          git rev-parse -q --verify "refs/tags/$version" >/dev/null \
+            || { git tag "$version"; git push origin "refs/tags/$version"; }
+          gh release view "$version" >/dev/null 2>&1 \
+            || gh release create "$version" --notes "$notes"
