@@ -48,6 +48,14 @@ Corollary: when we disable an upstream feature, leave the unused code in place r
 
 Anything that changes the superblock, WAL, or grid layout introduces divergence from upstream's storage engine and risks unexpected breakage on upstream changes.
 
+### Server changes go out on first fork release (`shopify1`)
+
+TigerBeetle coordinates upgrades using the version triple (`X.Y.Z`) stored on disk in its datafile. Our fork versions append a `-shopifyN` suffix to that version for packaging which is not visible on-disk by a running cluster. For this reason, upgrades _between_ Shopify versions (e.g. between `0.17.0-shopify1` and `0.17.0-shopify2`) are incompatible with TigerBeetle's server upgrade mechanism.
+
+To accommodate this situation, **we only release server-changing patches in the first fork release of an upstream patch version**. For more details on this strategy see [RFC 035](https://github.com/ShopifyFRS/fintech-foundations/issues/1156).
+
+As a practical outcome, we have implemented a check to ensure that server-touching changes are not published in a non-`shopify1` release. If you are shipping a change that impacts the cluster itself, you must ship that change as a `shopify1` release in order to use TigerBeetle's in-place upgrade mechanism. The only exception to this rule is a hotfix change that cannot piggy-back on an upstream patch release; in that case, add `skip-versioning-check` to the commit message to bypass the check.
+
 ## Conventions
 
 ### Shopify Changelog
