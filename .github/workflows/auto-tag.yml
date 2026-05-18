@@ -39,4 +39,4 @@ jobs:
           git rev-parse -q --verify "refs/tags/$version" >/dev/null \
             || { git tag "$version"; git push origin "refs/tags/$version"; }
           gh release view "$version" >/dev/null 2>&1 \
-            || gh release create "$version" --notes "$notes"
+            || gh release create "$version" --title "$version" --notes "$notes"
