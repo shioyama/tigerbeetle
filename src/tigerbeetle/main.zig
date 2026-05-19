@@ -14,6 +14,8 @@ const config = constants.config;
 const benchmark_driver = @import("benchmark_driver.zig");
 const cli = @import("cli.zig");
 const inspect = @import("inspect.zig");
+// [shopify] Shadow-mode setup.
+const shopify_shadow = @import("shopify_shadow");
 
 const IO = vsr.io.IO;
 const Time = vsr.time.Time;
@@ -249,11 +251,22 @@ fn command_start(
     // TODO Panic if the data file's size is larger that args.storage_size_limit.
     // (Here or in Replica.open()?).
 
-    var message_pool = try MessagePool.init(gpa, .{ .replica = .{
-        .members_count = args.addresses.count_as(u8),
-        .pipeline_requests_limit = args.pipeline_requests_limit,
-        .message_bus = .tcp,
-    } });
+    // [shopify]
+    const shadow = shopify_shadow.setup(
+        gpa,
+        args.addresses.const_slice(),
+        if (args.shadow) |s| s.const_slice() else null,
+        args.shadower_count,
+        storage.fd,
+    );
+
+    var message_pool = try MessagePool.init(gpa, .{
+        .replica = .{
+            .members_count = shadow.node_count, // [shopify]
+            .pipeline_requests_limit = args.pipeline_requests_limit,
+            .message_bus = .tcp,
+        },
+    });
     defer message_pool.deinit(gpa);
 
     var aof: ?AOF = if (args.aof_file) |*aof_file| blk: {
@@ -342,7 +355,7 @@ fn command_start(
         storage,
         &message_pool,
         .{
-            .node_count = args.addresses.count_as(u8),
+            .node_count = shadow.node_count, // [shopify] include shadow slots
             .release = config.process.release,
             .release_client_min = config.process.release_client_min,
             .multiversion = multiversion,
@@ -365,16 +378,20 @@ fn command_start(
                 .aof_recovery = args.aof_recovery,
             },
             .message_bus_options = .{
-                .configuration = args.addresses.const_slice(),
+                .configuration = shadow.addresses, // [shopify]
                 .io = io,
                 .clients_limit = clients_limit,
                 .trace = tracer,
+                // [shopify]
+                .shadower_count = shadow.shadower_count,
+                .listen_address = shadow.listen_address,
             },
             .grid_cache_blocks_count = args.cache_grid_blocks,
             .tracer = tracer,
             .replicate_options = .{
                 .star = args.replicate_star,
             },
+            .shadower = shadow.is_shadower, // [shopify]
         },
     ) catch |err| switch (err) {
         error.NoAddress => vsr.fatal(.cli, "all --addresses must be provided", .{}),
@@ -424,6 +441,14 @@ fn command_start(
         replica.cluster,
         replica.message_bus.accept_address.?,
     });
+
+    // [shopify]
+    if (shadow.is_shadower) {
+        log.info(
+            "{}: started in shadow mode (standby index={})",
+            .{ replica.replica, replica.replica },
+        );
+    }
 
     if (args.aof_recovery) {
         log.warn(

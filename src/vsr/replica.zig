@@ -638,6 +638,10 @@ pub fn ReplicaType(
             timeout_grid_repair_message_ticks: ?u64 = null,
             commit_stall_probability: ?Ratio,
             replicate_options: ReplicateOptions = .{},
+            // [shopify] When true, the replica operates in shadow mode: it connects to
+            // another cluster as a standby. The standby index is computed as
+            // replica_count + own_index.
+            shadower: bool = false,
         };
 
         /// Initializes and opens the provided replica using the options.
@@ -680,7 +684,8 @@ pub fn ReplicaType(
             self.superblock.working.vsr_state.assert_internally_consistent();
 
             const replica_id = self.superblock.working.vsr_state.replica_id;
-            const replica = for (self.superblock.working.vsr_state.members, 0..) |member, index| {
+            // [shopify] Shadow mode rewrites this index below.
+            var replica: u8 = for (self.superblock.working.vsr_state.members, 0..) |member, index| {
                 if (member == replica_id) break @as(u8, @intCast(index));
             } else unreachable;
             const replica_count = self.superblock.working.vsr_state.replica_count;
@@ -692,6 +697,12 @@ pub fn ReplicaType(
                 });
                 return error.NoAddress;
             }
+
+            // [shopify] In shadow mode, override the replica index to a
+            // standby index in the cluster being shadowed. The
+            // node_count/replica_count relationship is validated up front in
+            // src/shopify/shadow.zig.
+            if (options.shadower) replica = replica_count + replica;
 
             self.trace = options.tracer;
             self.trace.set_replica(.{

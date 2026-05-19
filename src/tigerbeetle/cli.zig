@@ -89,6 +89,11 @@ const CLIArgs = union(enum) {
         timeout_grid_repair_message_ms: ?u64 = null,
         commit_stall_probability: ?Ratio = null,
 
+        // [shopify] Shadow mode: connect to another cluster as standbys to sync state.
+        shadow: ?[]const u8 = null,
+        // [shopify] Reserve slots for shadow replicas to connect inbound as standbys.
+        shadower_count: ?u8 = null,
+
         // Highly experimental options that will be removed in a future release:
         replicate_star: bool = false,
 
@@ -544,6 +549,9 @@ pub const Command = union(enum) {
         development: bool,
         experimental: bool,
         replicate_star: bool,
+        // [shopify] Shadow mode parameters.
+        shadow: ?Addresses,
+        shadower_count: u8,
         aof_file: ?Path,
         aof_recovery: bool,
         path: []const u8,
@@ -1081,6 +1089,36 @@ fn parse_args_start(start: CLIArgs.Start) Command.Start {
         .experimental = start.experimental,
         .trace = start.trace,
         .replicate_star = start.replicate_star,
+        // [shopify] Parse shadow-mode options.
+        .shadow = if (start.shadow) |shadow_addresses| blk: {
+            if (start.shadower_count != null) {
+                vsr.fatal(
+                    .cli,
+                    "--shadow and --shadower-count are mutually exclusive",
+                    .{},
+                );
+            }
+            if (start.aof_recovery) {
+                vsr.fatal(
+                    .cli,
+                    "--shadow and --aof-recovery are mutually exclusive",
+                    .{},
+                );
+            }
+            if (std.mem.eql(u8, start.addresses, "0")) {
+                vsr.fatal(
+                    .cli,
+                    "--shadow requires --addresses to be a real address list",
+                    .{},
+                );
+            }
+            break :blk parse_addresses(
+                shadow_addresses,
+                "--shadow",
+                Command.Addresses,
+            );
+        } else null,
+        .shadower_count = start.shadower_count orelse 0,
         .aof_file = aof_file,
         .aof_recovery = start.aof_recovery,
         .path = start.path,

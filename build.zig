@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 
 // [shopify] Fork-only helpers. Small, fork-isolated; safe to import from build.zig.
 const shopify_tb_snapshot = @import("src/shopify/tb_snapshot/build.zig");
+const shopify_build_modules = @import("src/shopify/build_modules.zig");
 
 const assert = std.debug.assert;
 const Query = std.Target.Query;
@@ -663,6 +664,8 @@ fn build_check(
     });
     tigerbeetle.root_module.addImport("stdx", options.stdx_module);
     tigerbeetle.root_module.addImport("vsr", options.vsr_module);
+    // [shopify]
+    shopify_build_modules.add_to_tigerbeetle(b, tigerbeetle.root_module, options.vsr_module);
     step_check.dependOn(&tigerbeetle.step);
 }
 
@@ -749,6 +752,8 @@ fn build_tigerbeetle_executable(b: *std.Build, options: struct {
     });
     root_module.addImport("vsr", options.vsr_module);
     root_module.addOptions("vsr_options", options.vsr_options);
+    // [shopify]
+    shopify_build_modules.add_to_tigerbeetle(b, root_module, options.vsr_module);
     if (options.mode == .ReleaseSafe) strip_root_module(root_module);
 
     const tigerbeetle = b.addExecutable(.{
