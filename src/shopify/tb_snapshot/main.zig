@@ -58,10 +58,10 @@ pub fn main() !void {
 
     try maybe_print_help_or_version(gpa);
 
-    var arg_iterator = try std.process.argsWithAllocator(gpa);
-    defer arg_iterator.deinit();
+    var flags = stdx.Flags.init(gpa);
+    defer flags.deinit(gpa);
 
-    const cli = stdx.flags(&arg_iterator, CLIArgs);
+    const cli = flags.parse(CLIArgs);
 
     if (cli.drain_pipeline and cli.addresses == null) {
         vsr.fatal(.cli, "--drain-pipeline requires --addresses", .{});
@@ -91,9 +91,9 @@ pub fn main() !void {
 }
 
 // Other TB binaries (tigerbeetle, aof, scripts) shape their CLI as a `union(enum)` of
-// subcommands, which `stdx.flags` auto-handles `-h/--help` for. tb-snapshot has only one
-// operation, and `stdx.flags.parse_commands` asserts `len >= 2`, so a single-subcommand
-// union isn't expressible. We use a flat struct and scan for `--help`/`--version` ourselves.
+// subcommands, which `stdx.Flags.parse` auto-handles `-h/--help` for. tb-snapshot has only
+// one operation, and `parse_commands` asserts `len >= 2`, so a single-subcommand union
+// isn't expressible. We use a flat struct and scan for `--help`/`--version` ourselves.
 fn maybe_print_help_or_version(gpa: std.mem.Allocator) !void {
     var iter = try std.process.argsWithAllocator(gpa);
     defer iter.deinit();

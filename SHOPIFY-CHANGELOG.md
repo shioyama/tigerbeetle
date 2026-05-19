@@ -3,6 +3,17 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Fixes
+
+- [#NNN](https://github.com/shop/tigerbeetle/pull/NNN)
+
+  Port `tb-snapshot` to the new `stdx.Flags.parse` API (upstream renamed
+  `stdx.flags(...)`). The install-only artifact slipped through `zig build test`
+  in the 0.17.1 merge. Also run `Validate release build` on `shopify/upstream-*`
+  branches so the next upstream merge catches similar regressions before main.
+
 ## TigerBeetle 0.17.0-shopify3
 
 Released: 2026-05-18
