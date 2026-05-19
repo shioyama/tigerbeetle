@@ -16,7 +16,7 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Fixes
 
-- [#NNN](https://github.com/shop/tigerbeetle/pull/NNN)
+- [#107](https://github.com/shop/tigerbeetle/pull/107)
 
   Port `tb-snapshot` to the new `stdx.Flags.parse` API (upstream renamed
   `stdx.flags(...)`). The install-only artifact slipped through `zig build test`
