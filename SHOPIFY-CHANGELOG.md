@@ -3,6 +3,18 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Tooling
+
+- [#112](https://github.com/shop/tigerbeetle/pull/112)
+
+  Dedup the fork-versions manifest, `release_history()`, and the `Bump
+  fork-versions` workflow by `X.Y.Z` base — keep the latest `-shopifyN`
+  per patch line. Same-base bumps share wire versions and can't occupy
+  distinct vortex slots; bundling the highest `N` captures any hotfix
+  that landed server code on `-shopifyN>1`.
+
 ## TigerBeetle 0.17.1-shopify1
 
 Released: 2026-05-19

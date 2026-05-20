@@ -138,14 +138,14 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     // multiversion target. On the first fork release for a new upstream base,
     // the fork changelog has no prior entry and we fall through to the
     // upstream-derived previous.
-    const shopify_prior_tag: ?[]const u8 = if (cli_args.shopify)
-        try shopify_changelog.shopify_previous_version(shell)
-    else
-        null;
-    if (shopify_prior_tag) |prior_tag| {
-        const dash_idx = std.mem.indexOf(u8, prior_tag, "-shopify").?;
-        release_multiversion = try multiversion.Release.parse(prior_tag[0..dash_idx]);
-    }
+    const shopify_prior_tag: ?[]const u8 = blk: {
+        if (!cli_args.shopify) break :blk null;
+        const tag = try shopify_changelog.shopify_previous_version(shell) orelse
+            break :blk null;
+        const dash_idx = std.mem.indexOf(u8, tag, "-shopify").?;
+        release_multiversion = try multiversion.Release.parse(tag[0..dash_idx]);
+        break :blk tag;
+    };
 
     assert(multiversion.Release.less_than({}, release_multiversion, release));
 

@@ -1,9 +1,11 @@
 name: Bump fork-versions
 
-# After auto-tag pushes a 0.*-shopify* tag, open a PR adding the tag to
-# .shopify-build/fork-versions.txt so vortex's multi-version slots can include
-# it. Merging the PR is the human gate on "Cloudsmith publish succeeded" —
-# tidy check 5 fails any other PR opened in the meantime, surfacing the signal.
+# After auto-tag pushes a 0.*-shopifyN tag, open a PR updating
+# .shopify-build/fork-versions.txt to include it (replacing any prior
+# shopifyN for the same X.Y.Z base) so vortex's multi-version slots can
+# include it. Merging the PR is the human gate on "Cloudsmith publish
+# succeeded" — tidy check 5 fails any other PR opened in the meantime,
+# surfacing the signal.
 #
 # Triggered via workflow_run rather than `push: tags` because tags pushed with
 # the default GITHUB_TOKEN (from auto-tag.yml) don't trigger downstream events.
@@ -41,8 +43,11 @@ jobs:
             echo "PR already open for $branch"
             exit 0
           fi
-          expected=$(git tag --merged HEAD --sort=-committerdate | { grep -- '-shopify' || true; } | head -n 4)
-          [ -n "$expected" ] || { echo "no -shopify tags reachable from HEAD" >&2; exit 1; }
+          expected=$(git tag --merged HEAD --sort=-committerdate \
+            | grep -E -- '-shopify[0-9]+$' \
+            | awk -F'-shopify' '!seen[$1]++' \
+            | head -n 4)
+          [ -n "$expected" ] || { echo "no fork tags reachable from HEAD" >&2; exit 1; }
           if [ "$expected" = "$(cat .shopify-build/fork-versions.txt)" ]; then
             echo "fork-versions.txt already up to date"
             exit 0
@@ -56,5 +61,5 @@ jobs:
           git push -u origin "$branch"
           gh pr create \
             --title "[shopify] Bump fork-versions.txt for $version" \
-            --body "Auto-generated after the \`$version\` tag was pushed. Merging keeps \`.shopify-build/fork-versions.txt\` in sync with the four most recent fork tags reachable from \`main\`, which \`fetch-fork-binaries.sh\` reads to stage fork binaries for vortex's multi-version slots. Verify the \`$version\` \`.deb\` is published to Cloudsmith before merging." \
+            --body "Auto-generated after the \`$version\` tag was pushed. Merging keeps \`.shopify-build/fork-versions.txt\` in sync with the latest \`-shopifyN\` per \`X.Y.Z\` base reachable from \`main\` (capped at four patch lines), which \`fetch-fork-binaries.sh\` reads to stage fork binaries for vortex's multi-version slots. Verify the \`$version\` \`.deb\` is published to Cloudsmith before merging." \
             --base main

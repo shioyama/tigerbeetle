@@ -5,6 +5,7 @@ const builtin = @import("builtin");
 // [shopify] Fork-only helpers. Small, fork-isolated; safe to import from build.zig.
 const shopify_tb_snapshot = @import("src/shopify/tb_snapshot/build.zig");
 const shopify_build_modules = @import("src/shopify/build_modules.zig");
+const shopify_stdx = @import("src/shopify/stdx.zig");
 
 const assert = std.debug.assert;
 const Query = std.Target.Query;
@@ -1348,19 +1349,31 @@ fn release_history(b: *std.Build) std.mem.SplitIterator(u8, .scalar) {
         "--sort=-committerdate", // Sort from newest to oldest.
         "--list", "[0-9]*.[0-9]*.[0-9]*", // NB: This is not anchored (^$).
     });
-    // [shopify] Drop X.Y.Z-shopifyN tags whose fork binary isn't staged locally.
+    // [shopify] Keep upstream `X.Y.Z` tags and canonical fork releases whose
+    // binary is staged locally. Per `X.Y.Z` base only the latest `-shopifyN` is
+    // kept: same-base bumps share a wire version so they can't occupy distinct
+    // multiversion slots, and bundling the highest `N` captures any hotfix that
+    // landed server code on `-shopifyN>1`. Non-canonical fork tags (rc,
+    // snapshot, etc.) are dropped outright.
     // fetch_release() reads fork binaries from .fork-bins/ (populated in CI by
     // .shopify-build/fetch-fork-binaries.sh); upstream tags continue to download
     // from upstream's GitHub releases page.
-    return std.mem.splitScalar(u8, shopify_filter_unavailable_fork_tags(b, tags_string), '\n');
+    return std.mem.splitScalar(u8, shopify_filter_fork_tags(b, tags_string), '\n');
 }
 
-// [shopify]
-fn shopify_filter_unavailable_fork_tags(b: *std.Build, tags_string: []const u8) []const u8 {
+// [shopify] Tag filter for release_history(). Upstream `X.Y.Z` passes through;
+// fork tags are deduped by `X.Y.Z` base — the latest `-shopifyN` per patch line
+// is kept, and only if its binary is staged in `.fork-bins/`. Non-canonical
+// fork tags are dropped.
+fn shopify_filter_fork_tags(b: *std.Build, tags_string: []const u8) []const u8 {
     var filtered: std.ArrayListUnmanaged(u8) = .empty;
+    var seen_bases: std.StringArrayHashMapUnmanaged(void) = .empty;
     var it = std.mem.splitScalar(u8, tags_string, '\n');
     while (it.next()) |tag| {
         if (std.mem.indexOf(u8, tag, "-shopify") != null) {
+            const parsed = shopify_stdx.parse_fork_release_tag(tag) orelse continue;
+            const gop = seen_bases.getOrPut(b.allocator, parsed.base) catch @panic("OOM");
+            if (gop.found_existing) continue;
             const local_path = b.fmt(".fork-bins/{s}/tigerbeetle", .{tag});
             b.build_root.handle.access(local_path, .{}) catch continue;
         }
