@@ -22,7 +22,7 @@ on:
 jobs:
   bump:
     if: github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+    runs-on: shopify-ubuntu-latest
     steps:
       - name: Wait for shopify-build to publish the .deb to Cloudsmith
         run: sleep 600
