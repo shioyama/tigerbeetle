@@ -10,6 +10,16 @@ pub fn truthy(val: ?[]const u8) bool {
     return false;
 }
 
+/// Parses the `SHOPIFY_PRERELEASE` env var value as the RC number for a
+/// prerelease build. Returns `null` when the env var is unset or empty (i.e.
+/// not a prerelease). Errors when the env var is set but isn't a non-negative
+/// integer. Callers append `-rc{N}` to the changelog-derived version.
+pub fn prerelease_rc_n(env_value: ?[]const u8) !?u16 {
+    const raw = env_value orelse return null;
+    if (raw.len == 0) return null;
+    return std.fmt.parseUnsigned(u16, raw, 10) catch error.InvalidPrerelease;
+}
+
 pub const ForkReleaseTag = struct { base: []const u8, n: u16 };
 
 /// Parses a canonical `X.Y.Z-shopifyN` tag string. Returns `null` for anything
@@ -48,6 +58,18 @@ fn is_query_unreserved(c: u8) bool {
         'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => true,
         else => false,
     };
+}
+
+test prerelease_rc_n {
+    try std.testing.expectEqual(@as(?u16, null), try prerelease_rc_n(null));
+    try std.testing.expectEqual(@as(?u16, null), try prerelease_rc_n(""));
+    try std.testing.expectEqual(@as(?u16, 1), (try prerelease_rc_n("1")).?);
+    try std.testing.expectEqual(@as(?u16, 42), (try prerelease_rc_n("42")).?);
+    try std.testing.expectEqual(@as(?u16, 0), (try prerelease_rc_n("0")).?);
+    try std.testing.expectError(error.InvalidPrerelease, prerelease_rc_n("rc1"));
+    try std.testing.expectError(error.InvalidPrerelease, prerelease_rc_n("1.2"));
+    try std.testing.expectError(error.InvalidPrerelease, prerelease_rc_n("-1"));
+    try std.testing.expectError(error.InvalidPrerelease, prerelease_rc_n("abc"));
 }
 
 test is_fork_release_tag {

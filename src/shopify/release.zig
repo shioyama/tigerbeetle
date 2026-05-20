@@ -259,7 +259,13 @@ pub fn build_artifacts(
         .dest = go_client_dir,
     });
 
-    try assert_release_version(shell, pkg_dir, shopify_version);
+    // Prerelease builds tag the .deb with `-rc{N}` but leave the binary stamp
+    // at the changelog's base version, so strip the suffix before checking.
+    const stamped_version = if (std.mem.indexOf(u8, shopify_version, "-rc")) |idx|
+        shopify_version[0..idx]
+    else
+        shopify_version;
+    try assert_release_version(shell, pkg_dir, stamped_version);
 
     try shell.exec("dpkg-deb --build {staging} zig-out/shopify-dist/", .{
         .staging = pkg_dir,

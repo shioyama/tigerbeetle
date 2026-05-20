@@ -15,6 +15,16 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   distinct vortex slots; bundling the highest `N` captures any hotfix
   that landed server code on `-shopifyN>1`.
 
+- [#112](https://github.com/shop/tigerbeetle/pull/112)
+
+  Add `SHOPIFY_PRERELEASE=N` for publishing prerelease builds. Manually
+  triggering the publish pipeline with the env var builds
+  `X.Y.Z-shopifyN-rcN` from the release PR's changelog; the `.deb` filename
+  and `DEBIAN/control` Version carry `-rcN`, the binary stamp doesn't.
+  Prereleases share the eventual final's version and must not mix in the
+  same cluster. The publish step's `if:` regex is tightened so only
+  canonical `X.Y.Z-shopifyN` tag pushes (or env-var builds) trigger it.
+
 ## TigerBeetle 0.17.1-shopify1
 
 Released: 2026-05-19
