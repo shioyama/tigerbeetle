@@ -176,7 +176,7 @@ fn compose_release_pr_body(
             "?branch=release%2F{s}&env[SHOPIFY_PRERELEASE]=1&message=RC%20for%20{s}) " ++
             "and adjust `SHOPIFY_PRERELEASE` to the next RC number (start at `1`, " ++
             "increment to come after any prior RC already published). The build " ++
-            "publishes `{s}-rcN.deb` to Cloudsmith.\n\n" ++
+            "publishes `{s}~rcN.deb` to Cloudsmith.\n\n" ++
             "---\n\n{s}",
         .{ version, version, version, changelog_body },
     );
@@ -279,9 +279,9 @@ pub fn build_artifacts(
         .dest = go_client_dir,
     });
 
-    // Prerelease builds tag the .deb with `-rc{N}` but leave the binary stamp
+    // Prerelease builds tag the .deb with `~rc{N}` but leave the binary stamp
     // at the changelog's base version, so strip the suffix before checking.
-    const stamped_version = if (std.mem.indexOf(u8, shopify_version, "-rc")) |idx|
+    const stamped_version = if (std.mem.indexOf(u8, shopify_version, "~rc")) |idx|
         shopify_version[0..idx]
     else
         shopify_version;
