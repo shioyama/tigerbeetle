@@ -41,12 +41,12 @@ steps:
   - label: ':package: Build and publish'
     timeout: 30m
     # The step (including its `publish:` block) only fires for canonical
-    # `X.Y.Z-shopifyN` fork tag pushes, or for manual builds with
-    # SHOPIFY_PRERELEASE set to a non-negative integer. Anything else —
-    # non-canonical fork tags like `0.17.1-shopify1-rc1`, auto-pushes to release
-    # branches without the env var, etc. — is filtered out entirely so no
-    # artifacts get uploaded.
-    if: build.branch =~ /^[0-9]+\.[0-9]+\.[0-9]+-shopify[0-9]+$/ || build.env("SHOPIFY_PRERELEASE") =~ /^[0-9]+$/
+    # `X.Y.Z-shopifyN` fork tag pushes, or for manual builds on a `release/*`
+    # branch with SHOPIFY_PRERELEASE set to a non-negative integer. Anything
+    # else — non-canonical fork tags like `0.17.1-shopify1-rc1`, auto-pushes to
+    # release branches without the env var, RC attempts from feature branches —
+    # is filtered out entirely so no artifacts get uploaded.
+    if: build.branch =~ /^[0-9]+\.[0-9]+\.[0-9]+-shopify[0-9]+$/ || (build.branch =~ /^release\// && build.env("SHOPIFY_PRERELEASE") =~ /^[0-9]+$/)
     git:
       history: full
     cache:
