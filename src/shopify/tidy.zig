@@ -11,9 +11,12 @@
 //!      and carries a fork-PR link.
 //!   4. Functions in `src/shopify/` use snake_case, matching TigerBeetle's convention
 //!      (not Zig stdlib's camelCase). PascalCase type-returning functions are allowed.
-//!   5. `.shopify-build/fork-versions.txt` lists the four most recent `-shopify*` tags
-//!      reachable from `HEAD^`, newest first. Forces the manifest to stay in sync with
-//!      git so CI stages the right binaries for vortex's multi-version slots.
+//!   5. `.shopify-build/fork-versions.txt` lists the latest `-shopifyN` per
+//!      `X.Y.Z` patch line reachable from `HEAD^`, newest first, capped at four
+//!      patch lines. Dedup by base avoids burning a vortex slot on a same-base
+//!      bump that shares a wire version with its sibling; keeping the highest
+//!      `N` means any hotfix code that landed on `-shopifyN>1` is the binary
+//!      that gets bundled.
 //!
 //! Checks 1 and 2 diff against `BUILDKITE_PULL_REQUEST_BASE_BRANCH` if set, and fall back
 //! to `main` otherwise so the checks exercise locally too. Checks 3, 4, and 5 run
@@ -23,6 +26,7 @@ const std = @import("std");
 const mem = std.mem;
 
 const Shell = @import("../shell.zig");
+const shopify_stdx = @import("stdx.zig");
 const validate_shopify_changelog_structure =
     @import("changelog.zig").validate_shopify_changelog_structure;
 
@@ -159,10 +163,11 @@ fn validate_snake_case_functions(shell: *Shell) !void {
 const fork_versions_max = 4;
 const fork_versions_manifest = ".shopify-build/fork-versions.txt";
 
-// The manifest must equal the most recent `-shopify*` tags reachable from `HEAD^`,
-// newest first, capped at `fork_versions_max`. Keeps `.fork-bins/` in sync with what
-// `release_history()` will iterate. Once enough fork tags exist to fill every slot,
-// `.shopify-build/fetch-upstream-tags.sh` becomes redundant and can be retired.
+// The manifest must equal the latest `-shopifyN` per `X.Y.Z` base reachable
+// from `HEAD^`, newest first, capped at `fork_versions_max` patch lines. Keeps
+// `.fork-bins/` in sync with what `release_history()` will iterate. Once
+// enough fork tags exist to fill every slot, `.shopify-build/fetch-upstream-tags.sh`
+// becomes redundant and can be retired.
 fn validate_fork_versions_manifest(shell: *Shell) !void {
     const allocator = shell.arena.allocator();
 
@@ -178,11 +183,14 @@ fn validate_fork_versions_manifest(shell: *Shell) !void {
     };
 
     var expected: std.ArrayListUnmanaged(u8) = .empty;
+    var seen_bases: std.StringArrayHashMapUnmanaged(void) = .empty;
     var found: u32 = 0;
     var lines = mem.splitScalar(u8, tags_output, '\n');
     while (lines.next()) |tag| {
         if (tag.len == 0) continue;
-        if (mem.indexOf(u8, tag, "-shopify") == null) continue;
+        const parsed = shopify_stdx.parse_fork_release_tag(tag) orelse continue;
+        const gop = try seen_bases.getOrPut(allocator, parsed.base);
+        if (gop.found_existing) continue;
         try expected.appendSlice(allocator, tag);
         try expected.append(allocator, '\n');
         found += 1;
@@ -204,7 +212,8 @@ fn validate_fork_versions_manifest(shell: *Shell) !void {
     if (!mem.eql(u8, manifest, expected.items)) {
         std.debug.print(
             "error: {s} is out of sync with git tags.\n" ++
-                "expected (most recent {d} -shopify* tags reachable from HEAD^, newest first):\n" ++
+                "expected (latest -shopifyN per X.Y.Z base reachable from " ++
+                "HEAD^, newest first, capped at {d} patch lines):\n" ++
                 "{s}" ++
                 "got:\n" ++
                 "{s}",

@@ -158,8 +158,19 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
 
     const changelog_body = extract_changelog_body(updated_text, version);
 
+    const pr_body = try shell.fmt(
+        "## Release candidates\n\n" ++
+            "To publish a release candidate from this branch before merging, create " ++
+            "a build of the `tigerbeetle-publish-package` pipeline in Shopify Build " ++
+            "with `SHOPIFY_PRERELEASE=N` set on the build (choose `N` to come after " ++
+            "any prior RC already published). The build publishes `{s}-rcN.deb`" ++
+            "to Cloudsmith.\n\n" ++
+            "---\n\n{s}",
+        .{ version, changelog_body },
+    );
+
     const pr_title = try shell.fmt("Release {s}", .{version});
-    try shopify_github.open_pr_compare(shell, allocator, branch, pr_title, changelog_body);
+    try shopify_github.open_pr_compare(shell, allocator, branch, pr_title, pr_body);
 }
 
 /// Build the Shopify fork artifacts (the `.deb` package). Called from
@@ -259,7 +270,13 @@ pub fn build_artifacts(
         .dest = go_client_dir,
     });
 
-    try assert_release_version(shell, pkg_dir, shopify_version);
+    // Prerelease builds tag the .deb with `-rc{N}` but leave the binary stamp
+    // at the changelog's base version, so strip the suffix before checking.
+    const stamped_version = if (std.mem.indexOf(u8, shopify_version, "-rc")) |idx|
+        shopify_version[0..idx]
+    else
+        shopify_version;
+    try assert_release_version(shell, pkg_dir, stamped_version);
 
     try shell.exec("dpkg-deb --build {staging} zig-out/shopify-dist/", .{
         .staging = pkg_dir,

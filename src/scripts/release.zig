@@ -72,13 +72,34 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     _ = gpa;
 
     // [shopify] Validate and pin the fork version from SHOPIFY-CHANGELOG.md.
+    // SHOPIFY_PRERELEASE=N (non-negative integer) builds a prerelease named
+    // `<base>-rc{N}` from the changelog's top entry. The prerelease path rewrites
+    // the changelog's `(unreleased)` header in place before validation, the same
+    // way `VALIDATE_RELEASE_BUILD` does. The binary itself is *not* stamped with
+    // the rc suffix — only the `.deb` filename and DEBIAN/control Version carry
+    // it — so the assert in `build_artifacts` strips the suffix before checking
+    // the binary's `version` output.
     const shopify_version: ?[]const u8 = if (cli_args.shopify) blk: {
-        if (shopify_stdx.truthy(shell.env_get_option("VALIDATE_RELEASE_BUILD"))) {
+        const prerelease_n = try shopify_stdx.prerelease_rc_n(
+            shell.env_get_option("SHOPIFY_PRERELEASE"),
+        );
+        if (prerelease_n != null or
+            shopify_stdx.truthy(shell.env_get_option("VALIDATE_RELEASE_BUILD")))
+        {
             try shopify_release.prepare_validation_release(shell);
         }
-        const v = try shopify_changelog.shopify_latest_version(shell);
-        try shopify_changelog.validate_shopify_release(shell, v);
-        break :blk v;
+        const base = try shopify_changelog.shopify_latest_version(shell);
+        try shopify_changelog.validate_shopify_release(shell, base);
+        if (prerelease_n) |n| {
+            const v = try shell.fmt("{s}-rc{}", .{ base, n });
+            std.log.warn(
+                "building prerelease {s}; version matches the eventual {s}" ++
+                    " — do not mix in the same cluster",
+                .{ v, base },
+            );
+            break :blk v;
+        }
+        break :blk base;
     } else null;
 
     const languages = if (cli_args.language) |language|
@@ -138,14 +159,14 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     // multiversion target. On the first fork release for a new upstream base,
     // the fork changelog has no prior entry and we fall through to the
     // upstream-derived previous.
-    const shopify_prior_tag: ?[]const u8 = if (cli_args.shopify)
-        try shopify_changelog.shopify_previous_version(shell)
-    else
-        null;
-    if (shopify_prior_tag) |prior_tag| {
-        const dash_idx = std.mem.indexOf(u8, prior_tag, "-shopify").?;
-        release_multiversion = try multiversion.Release.parse(prior_tag[0..dash_idx]);
-    }
+    const shopify_prior_tag: ?[]const u8 = blk: {
+        if (!cli_args.shopify) break :blk null;
+        const tag = try shopify_changelog.shopify_previous_version(shell) orelse
+            break :blk null;
+        const dash_idx = std.mem.indexOf(u8, tag, "-shopify").?;
+        release_multiversion = try multiversion.Release.parse(tag[0..dash_idx]);
+        break :blk tag;
+    };
 
     assert(multiversion.Release.less_than({}, release_multiversion, release));
 

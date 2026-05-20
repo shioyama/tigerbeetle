@@ -1,3 +1,2 @@
+0.17.1-shopify1
 0.17.0-shopify3
-0.17.0-shopify2
-0.17.0-shopify1
