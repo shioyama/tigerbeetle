@@ -172,8 +172,8 @@ fn compose_release_pr_body(
         "## Release candidates\n\n" ++
             "To publish a release candidate from this branch before merging, " ++
             "[open the `tigerbeetle-publish-package` build form]" ++
-            "(https://buildkite.com/shopify/tigerbeetle-publish-package/builds/new" ++
-            "?branch=release%2F{s}&env[SHOPIFY_PRERELEASE]=1&message=RC%20for%20{s}) " ++
+            "(https://buildkite.com/shopify/tigerbeetle-publish-package/builds" ++
+            "?branch=release%2F{s}&env=SHOPIFY_PRERELEASE=1&message=RC+for+{s}#new) " ++
             "and adjust `SHOPIFY_PRERELEASE` to the next RC number (start at `1`, " ++
             "increment to come after any prior RC already published). The build " ++
             "publishes `{s}~rcN.deb` to Cloudsmith.\n\n" ++
