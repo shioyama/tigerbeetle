@@ -5,6 +5,16 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ## TigerBeetle (unreleased)
 
+### Patches
+
+- [#109](https://github.com/shop/tigerbeetle/pull/109)
+
+  Shadower shutdown-on-upgrade. At an upgrade bar, a shadower no longer advances
+  `checkpoint.release`; instead it shuts down after durably checkpointing the
+  suppressed release advance, or before state-syncing to an upgraded checkpoint.
+  Operators can then restart the datafile explicitly as its own rollback cluster
+  if the upgrade needs to be rolled back.
+
 ### Tooling
 
 - [#125](https://github.com/shop/tigerbeetle/pull/125)

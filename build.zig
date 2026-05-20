@@ -959,6 +959,19 @@ fn build_test(
         .mode = options.mode,
     });
 
+    // [shopify]
+    shopify_build_modules.build_shadow_test(b, .{
+        .@"test" = steps.@"test",
+        .test_unit = steps.test_unit,
+        .test_unit_build = steps.test_unit_build,
+    }, .{
+        .stdx_module = options.stdx_module,
+        .vsr_module_test = options.vsr_module_test,
+        .vsr_options_test = options.vsr_options_test,
+        .target = options.target,
+        .mode = options.mode,
+    });
+
     build_test_integration(b, .{
         .test_integration = steps.test_integration,
         .test_integration_build = steps.test_integration_build,

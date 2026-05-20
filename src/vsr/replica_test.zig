@@ -1513,6 +1513,56 @@ test "Cluster: upgrade: R=1" {
     try expectEqual(t.replica(.R0).commit(), checkpoint_1_trigger);
 }
 
+test "Cluster: upgrade: shadower shutdown after upgrade checkpoint" {
+    const t = try TestContext.init(.{ .replica_count = 3, .standby_count = 1 });
+    defer t.deinit();
+
+    const shadower_index = t.replica(.S0).index();
+    t.cluster.replicas[shadower_index].shadower = true;
+
+    t.replica(.R_).stop();
+    try t.replica(.R_).open_upgrade(&[_]u8{ 10, 20 });
+    t.cluster.replicas[shadower_index].shadower = true;
+
+    t.run();
+
+    try expectEqual(t.replica(.R_).release(), 20);
+    try expectEqual(t.replica(.R_).op_checkpoint(), checkpoint_1);
+    try expect(t.cluster.replicas[shadower_index].shadower_must_shutdown());
+    try expectEqual(t.cluster.replicas[shadower_index].release.triple().patch, 10);
+    try expectEqual(t.replica(.S0).storage_checkpoint_release(), 10);
+}
+
+test "Cluster: upgrade: shadower shutdown after state sync across upgrade" {
+    const t = try TestContext.init(.{ .replica_count = 3, .standby_count = 1 });
+    defer t.deinit();
+
+    var c = t.clients(.{});
+    const shadower_index = t.replica(.S0).index();
+    t.cluster.replicas[shadower_index].shadower = true;
+
+    t.replica(.R_).stop();
+    try t.replica(.R_).open_upgrade(&[_]u8{ 10, 20 });
+    t.cluster.replicas[shadower_index].shadower = true;
+
+    // Keep the shadower far enough behind that it must state-sync after the source cluster
+    // crosses the upgrade bar.
+    t.replica(.S0).drop(.__, .bidirectional, .prepare);
+    t.replica(.S0).drop(.__, .bidirectional, .view);
+    t.run();
+
+    try expectEqual(t.replica(.R0).commit(), checkpoint_1_trigger);
+    try c.request(constants.vsr_checkpoint_ops, constants.vsr_checkpoint_ops);
+    try expectEqual(t.replica(.R0).commit(), checkpoint_2_trigger);
+
+    t.replica(.S0).pass_all(.__, .bidirectional);
+    t.run();
+
+    try expect(t.cluster.replicas[shadower_index].shadower_must_shutdown());
+    try expectEqual(t.cluster.replicas[shadower_index].release.triple().patch, 10);
+    try expectEqual(t.replica(.S0).storage_checkpoint_release(), 10);
+}
+
 test "Cluster: upgrade: state-sync to new release" {
     const t = try TestContext.init(.{ .replica_count = 3 });
     defer t.deinit();
@@ -2599,6 +2649,23 @@ const TestReplicas = struct {
             checkpoint_all = replica.op_checkpoint();
         }
         return checkpoint_all.?;
+    }
+
+    pub fn storage_checkpoint_release(t: *const TestReplicas) u16 {
+        var release_all: ?u16 = null;
+        for (t.replicas.const_slice()) |r| {
+            var headers: [constants.superblock_copies]vsr.superblock.SuperBlockHeader = undefined;
+            for (&headers, 0..) |*header, copy| {
+                header.* = t.cluster.storages[r].superblock_header(@intCast(copy)).*;
+            }
+
+            var quorums: vsr.superblock.Quorums = .{};
+            const quorum = quorums.working(&headers, .open) catch unreachable;
+            const checkpoint_release = quorum.header.vsr_state.checkpoint.release.triple().patch;
+            assert(release_all == null or release_all.? == checkpoint_release);
+            release_all = checkpoint_release;
+        }
+        return release_all.?;
     }
 
     pub fn corrupt(

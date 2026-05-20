@@ -594,6 +594,10 @@ pub fn ClusterType(comptime StateMachineType: anytype) type {
                             assert(!up.paused);
 
                             replica.tick();
+                            // [shopify] tigerbeetle/main.zig exits once a shadower triggers
+                            // shutdown-on-upgrade. The simulator keeps the process object around
+                            // for assertions, but stops ticking/checking it.
+                            if (replica.shadower_must_shutdown()) continue;
                             aof_io.run() catch |err| {
                                 std.debug.panic("{}: io.run() failed: error={}", .{
                                     replica.replica,

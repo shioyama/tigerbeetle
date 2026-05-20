@@ -8,6 +8,7 @@
 //! `command_start` doesn't carry fork-only setup inline.
 
 const std = @import("std");
+const assert = std.debug.assert;
 
 const vsr = @import("vsr");
 const constants = vsr.constants;
@@ -40,23 +41,36 @@ pub fn setup(
     shadower_count: u8,
     storage_fd: std.posix.fd_t,
 ) Setup {
+    const info: ?SuperBlockInfo = if (shadow_addresses != null)
+        read_superblock_info(gpa, storage_fd)
+    else
+        null;
+    return decide(own_addresses, shadow_addresses, shadower_count, info);
+}
+
+fn decide(
+    own_addresses: []const Address,
+    shadow_addresses: ?[]const Address,
+    shadower_count: u8,
+    info: ?SuperBlockInfo,
+) Setup {
     if (shadow_addresses) |shadow| {
-        const info = read_superblock_info(gpa, storage_fd);
+        const sb = info.?;
         const slot_count: u8 = @intCast(shadow.len);
-        if (slot_count != info.replica_count) {
+        if (slot_count != sb.replica_count) {
             vsr.fatal(
                 .cli,
                 "--shadow: address count ({}) must equal local datafile " ++
                     "replica_count ({})",
-                .{ slot_count, info.replica_count },
+                .{ slot_count, sb.replica_count },
             );
         }
-        if (info.member_index >= own_addresses.len) {
+        if (sb.member_index >= own_addresses.len) {
             vsr.fatal(
                 .cli,
                 "--shadow: --addresses count ({}) is too small for local " ++
                     "datafile member index ({})",
-                .{ own_addresses.len, info.member_index },
+                .{ own_addresses.len, sb.member_index },
             );
         }
         return .{
@@ -64,7 +78,7 @@ pub fn setup(
             .addresses = shadow,
             .node_count = @intCast(shadow.len + slot_count),
             .shadower_count = slot_count,
-            .listen_address = own_addresses[info.member_index],
+            .listen_address = own_addresses[sb.member_index],
         };
     }
     return .{
@@ -139,4 +153,34 @@ fn read_superblock_info(gpa: std.mem.Allocator, storage_fd: std.posix.fd_t) Supe
         .member_index = member_index,
         .replica_count = quorum.header.vsr_state.replica_count,
     };
+}
+
+test "shadow decide: --shadow" {
+    const own = try parse_addresses_test(1, "127.0.0.1:7000");
+    const shadow = try parse_addresses_test(1, "127.0.0.1:8000");
+    const out = decide(&own, &shadow, 0, .{
+        .member_index = 0,
+        .replica_count = 1,
+    });
+    try std.testing.expectEqual(true, out.is_shadower);
+    try std.testing.expectEqual(@as(u8, 2), out.node_count);
+    try std.testing.expectEqual(@as(u8, 1), out.shadower_count);
+    try std.testing.expect(out.listen_address != null);
+    try std.testing.expectEqual(shadow[0].in.sa.port, out.addresses[0].in.sa.port);
+}
+
+test "shadow decide: no --shadow ignores superblock" {
+    const own = try parse_addresses_test(1, "127.0.0.1:7000");
+    const out = decide(&own, null, 2, null);
+    try std.testing.expectEqual(false, out.is_shadower);
+    try std.testing.expectEqual(@as(u8, 3), out.node_count);
+    try std.testing.expectEqual(@as(u8, 2), out.shadower_count);
+    try std.testing.expect(out.listen_address == null);
+}
+
+fn parse_addresses_test(comptime count: usize, raw: []const u8) ![count]Address {
+    var buf: [count]Address = undefined;
+    const parsed = try vsr.parse_addresses(raw, &buf);
+    assert(parsed.len == count);
+    return buf;
 }
