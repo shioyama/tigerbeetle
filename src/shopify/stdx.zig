@@ -13,7 +13,7 @@ pub fn truthy(val: ?[]const u8) bool {
 /// Parses the `SHOPIFY_PRERELEASE` env var value as the RC number for a
 /// prerelease build. Returns `null` when the env var is unset or empty (i.e.
 /// not a prerelease). Errors when the env var is set but isn't a non-negative
-/// integer. Callers append `-rc{N}` to the changelog-derived version.
+/// integer. Callers append `~rc{N}` to the changelog-derived version.
 pub fn prerelease_rc_n(env_value: ?[]const u8) !?u16 {
     const raw = env_value orelse return null;
     if (raw.len == 0) return null;

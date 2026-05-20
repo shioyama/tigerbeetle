@@ -157,20 +157,29 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
     try shell.exec("git push -u origin {branch}", .{ .branch = branch });
 
     const changelog_body = extract_changelog_body(updated_text, version);
-
-    const pr_body = try shell.fmt(
-        "## Release candidates\n\n" ++
-            "To publish a release candidate from this branch before merging, create " ++
-            "a build of the `tigerbeetle-publish-package` pipeline in Shopify Build " ++
-            "with `SHOPIFY_PRERELEASE=N` set on the build (choose `N` to come after " ++
-            "any prior RC already published). The build publishes `{s}-rcN.deb`" ++
-            "to Cloudsmith.\n\n" ++
-            "---\n\n{s}",
-        .{ version, changelog_body },
-    );
+    const pr_body = try compose_release_pr_body(shell, version, changelog_body);
 
     const pr_title = try shell.fmt("Release {s}", .{version});
     try shopify_github.open_pr_compare(shell, allocator, branch, pr_title, pr_body);
+}
+
+fn compose_release_pr_body(
+    shell: *Shell,
+    version: []const u8,
+    changelog_body: []const u8,
+) ![]const u8 {
+    return shell.fmt(
+        "## Release candidates\n\n" ++
+            "To publish a release candidate from this branch before merging, " ++
+            "[open the `tigerbeetle-publish-package` build form]" ++
+            "(https://buildkite.com/shopify/tigerbeetle-publish-package/builds/new" ++
+            "?branch=release%2F{s}&env[SHOPIFY_PRERELEASE]=1&message=RC%20for%20{s}) " ++
+            "and adjust `SHOPIFY_PRERELEASE` to the next RC number (start at `1`, " ++
+            "increment to come after any prior RC already published). The build " ++
+            "publishes `{s}~rcN.deb` to Cloudsmith.\n\n" ++
+            "---\n\n{s}",
+        .{ version, version, version, changelog_body },
+    );
 }
 
 /// Build the Shopify fork artifacts (the `.deb` package). Called from
@@ -270,9 +279,9 @@ pub fn build_artifacts(
         .dest = go_client_dir,
     });
 
-    // Prerelease builds tag the .deb with `-rc{N}` but leave the binary stamp
+    // Prerelease builds tag the .deb with `~rc{N}` but leave the binary stamp
     // at the changelog's base version, so strip the suffix before checking.
-    const stamped_version = if (std.mem.indexOf(u8, shopify_version, "-rc")) |idx|
+    const stamped_version = if (std.mem.indexOf(u8, shopify_version, "~rc")) |idx|
         shopify_version[0..idx]
     else
         shopify_version;

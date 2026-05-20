@@ -72,13 +72,8 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     _ = gpa;
 
     // [shopify] Validate and pin the fork version from SHOPIFY-CHANGELOG.md.
-    // SHOPIFY_PRERELEASE=N (non-negative integer) builds a prerelease named
-    // `<base>-rc{N}` from the changelog's top entry. The prerelease path rewrites
-    // the changelog's `(unreleased)` header in place before validation, the same
-    // way `VALIDATE_RELEASE_BUILD` does. The binary itself is *not* stamped with
-    // the rc suffix — only the `.deb` filename and DEBIAN/control Version carry
-    // it — so the assert in `build_artifacts` strips the suffix before checking
-    // the binary's `version` output.
+    // SHOPIFY_PRERELEASE=N builds `<base>~rc{N}` and (like VALIDATE_RELEASE_BUILD)
+    // rewrites the changelog's `(unreleased)` header in place before validation.
     const shopify_version: ?[]const u8 = if (cli_args.shopify) blk: {
         const prerelease_n = try shopify_stdx.prerelease_rc_n(
             shell.env_get_option("SHOPIFY_PRERELEASE"),
@@ -91,7 +86,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
         const base = try shopify_changelog.shopify_latest_version(shell);
         try shopify_changelog.validate_shopify_release(shell, base);
         if (prerelease_n) |n| {
-            const v = try shell.fmt("{s}-rc{}", .{ base, n });
+            const v = try shell.fmt("{s}~rc{}", .{ base, n });
             std.log.warn(
                 "building prerelease {s}; version matches the eventual {s}" ++
                     " — do not mix in the same cluster",
