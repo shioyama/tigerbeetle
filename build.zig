@@ -896,6 +896,13 @@ fn build_test(
         if (std.mem.indexOf(u8, arg, "benchmark") != null) break true;
     } else false);
 
+    // [shopify] Simple-mode runner so we own the failure output. Shared across
+    // every `b.addTest` that feeds into `zig build test`.
+    const shopify_test_runner: std.Build.Step.Compile.TestRunner = .{
+        .path = b.path("src/shopify/test_runner.zig"),
+        .mode = .simple,
+    };
+
     const stdx_unit_tests = b.addTest(.{
         .name = "test-stdx",
         .root_module = b.createModule(.{
@@ -904,6 +911,7 @@ fn build_test(
             .optimize = options.mode,
         }),
         .filters = b.args orelse &.{},
+        .test_runner = shopify_test_runner, // [shopify]
     });
     const unit_tests = b.addTest(.{
         .name = "test-unit",
@@ -913,6 +921,7 @@ fn build_test(
             .optimize = options.mode,
         }),
         .filters = b.args orelse &.{},
+        .test_runner = shopify_test_runner, // [shopify]
     });
     unit_tests.root_module.addImport("stdx", options.stdx_module);
     unit_tests.root_module.addOptions("vsr_options", options.vsr_options_test);
@@ -1012,6 +1021,11 @@ fn build_test_integration(
             .optimize = options.mode,
         }),
         .filters = b.args orelse &.{},
+        // [shopify] Simple-mode runner; see `src/shopify/test_runner.zig`.
+        .test_runner = .{
+            .path = b.path("src/shopify/test_runner.zig"),
+            .mode = .simple,
+        },
     });
     integration_tests.root_module.addImport("stdx", options.stdx_module);
     integration_tests.root_module.addOptions("vsr_options", options.vsr_options_test);

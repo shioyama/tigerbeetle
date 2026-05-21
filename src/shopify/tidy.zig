@@ -104,12 +104,16 @@ test "tidy shopify fork" {
             const msg = if (first_newline < meta.len) meta[first_newline + 1 ..] else "";
             const subject_end = mem.indexOfScalar(u8, msg, '\n') orelse msg.len;
             const subject = msg[0..subject_end];
+            const short_sha = sha[0..@min(sha.len, 7)];
 
             const shopify_authored = mem.endsWith(u8, author_email, "@shopify.com");
 
             // Check 1: [shopify] prefix, only for Shopify-authored commits.
             if (shopify_authored and !mem.startsWith(u8, subject, "[shopify]")) {
-                std.debug.print("error: commit missing [shopify] prefix: {s}\n", .{subject});
+                std.debug.print(
+                    "{s}: error: commit subject missing `[shopify]` prefix: {s}\n",
+                    .{ short_sha, subject },
+                );
                 has_bad_commits = true;
             }
 
@@ -118,8 +122,8 @@ test "tidy shopify fork" {
             const changelog_skipped = mem.indexOf(u8, msg, "skip-changelog-check") != null;
             if (changelog_skipped) {
                 std.debug.print(
-                    "note: skip-changelog-check applied to {s}\n",
-                    .{sha[0..@min(sha.len, 7)]},
+                    "{s}: note: skip-changelog-check applied\n",
+                    .{short_sha},
                 );
             }
 
@@ -128,8 +132,8 @@ test "tidy shopify fork" {
             const versioning_skipped = mem.indexOf(u8, msg, "skip-versioning-check") != null;
             if (server_changes_blocked and versioning_skipped) {
                 std.debug.print(
-                    "note: skip-versioning-check applied to {s}\n",
-                    .{sha[0..@min(sha.len, 7)]},
+                    "{s}: note: skip-versioning-check applied\n",
+                    .{short_sha},
                 );
             }
 
@@ -158,13 +162,9 @@ test "tidy shopify fork" {
                     server_closure.contains(path))
                 {
                     std.debug.print(
-                        "error: {s} (in {s}): server-touching path modified " ++
-                            "while the next fork cut would share its `X.Y.Z` " ++
-                            "with the prior `-shopify` release, which would " ++
-                            "prevent multiversion upgrades. Wait for an upstream " ++
-                            "merge that bumps `X.Y.Z`, or use " ++
-                            "`skip-versioning-check` for the hotfix path.\n",
-                        .{ path, sha[0..@min(sha.len, 7)] },
+                        "{s}: error: server-touching change during same-`X.Y.Z` " ++
+                            "fork bump (commit {s})\n",
+                        .{ path, short_sha },
                     );
                     has_versioning_violations = true;
                 }
@@ -173,8 +173,8 @@ test "tidy shopify fork" {
         if (has_bad_commits) return error.BadCommitPrefix;
         if (has_unskipped_src_changes and !changelog_changed) {
             std.debug.print(
-                "error: non-test src/ files changed but " ++
-                    "SHOPIFY-CHANGELOG.md was not updated\n",
+                "SHOPIFY-CHANGELOG.md: error: must be updated when non-test " ++
+                    "`src/` files change\n",
                 .{},
             );
             return error.ChangelogNotUpdated;
@@ -206,7 +206,7 @@ fn validate_snake_case_functions(shell: *Shell) !void {
             line_number += 1;
             const offender = find_camel_case_fn(line) orelse continue;
             std.debug.print(
-                "error: {s}:{d}: function `{s}` should use snake_case\n",
+                "{s}:{d}: error: function `{s}` should use snake_case\n",
                 .{ path, line_number, offender },
             );
             has_offenders = true;
@@ -260,7 +260,7 @@ fn validate_fork_versions_manifest(shell: *Shell) !void {
         4096,
     ) catch |err| {
         std.debug.print(
-            "error: could not read {s}: {s}\n",
+            "{s}: error: could not read ({s})\n",
             .{ fork_versions_manifest, @errorName(err) },
         );
         return error.ForkVersionsMissing;
@@ -268,7 +268,7 @@ fn validate_fork_versions_manifest(shell: *Shell) !void {
 
     if (!mem.eql(u8, manifest, expected.items)) {
         std.debug.print(
-            "error: {s} is out of sync with git tags.\n" ++
+            "{s}: error: out of sync with git tags\n" ++
                 "expected (latest -shopifyN per X.Y.Z base reachable from " ++
                 "HEAD^, newest first, capped at {d} patch lines):\n" ++
                 "{s}" ++
@@ -357,8 +357,8 @@ fn compute_server_closure(
         .{ .iterate = true },
     ) catch |err| {
         std.debug.print(
-            "error: cannot open .zig-cache/h ({s}); " ++
-                "run `./zig/zig build` first to populate the build cache.\n",
+            ".zig-cache/h: error: cannot open ({s}); " ++
+                "run `./zig/zig build` first to populate the build cache\n",
             .{@errorName(err)},
         );
         return error.ServerCacheMissing;
@@ -398,9 +398,9 @@ fn compute_server_closure(
 
     if (matched == 0) {
         std.debug.print(
-            "error: no `src/tigerbeetle/main.zig`-rooted manifest in " ++
-                ".zig-cache/h/; run `./zig/zig build` first to populate " ++
-                "the build cache.\n",
+            ".zig-cache/h: error: no `src/tigerbeetle/main.zig`-rooted " ++
+                "manifest; run `./zig/zig build` first to populate the " ++
+                "build cache\n",
             .{},
         );
         return error.ServerCacheMissing;

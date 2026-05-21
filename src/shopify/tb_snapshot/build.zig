@@ -58,6 +58,10 @@ pub fn build_tb_snapshot_test(
             .optimize = options.mode,
         }),
         .filters = b.args orelse &.{},
+        .test_runner = .{
+            .path = b.path("src/shopify/test_runner.zig"),
+            .mode = .simple,
+        },
     });
     tests.root_module.addImport("stdx", options.stdx_module);
     tests.root_module.addImport("vsr", options.vsr_module_test);

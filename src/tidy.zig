@@ -1239,6 +1239,7 @@ const DeadFilesDetector = struct {
             "service_worker_writer.zig",
             "single_page_writer.zig",
             "tb_client_header.zig",
+            "test_runner.zig", // [shopify]
             "unit_tests.zig",
             "vopr.zig",
             "vortex.zig",
