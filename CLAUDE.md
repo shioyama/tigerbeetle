@@ -23,6 +23,7 @@ Corollaries:
 - **Changelog updated**: if any non-test `src/` file changes, `SHOPIFY-CHANGELOG.md` must be updated in the same PR.
 - **Changelog well-formed**: every entry must sit under a `### ` section inside a `## TigerBeetle ...` release header and carry a fork-PR link. See [SHOPIFY-CHANGELOG.md structure](#shopify-changelogmd-structure) below.
 - **snake_case functions**: functions in `src/shopify/` use snake_case to match TigerBeetle (not Zig stdlib's camelCase). PascalCase type-returning functions are allowed.
+- **Server-touching block**: when the latest released fork tag and upstream's latest tag share an `X.Y.Z`, Shopify-authored commits on non-`release/*` branches may not modify files in the server binary's `@import` closure. The closure is computed from `.zig-cache/h/*.txt` manifests rooted at `src/tigerbeetle/main.zig`, so `./zig/zig build` must have run first to populate the cache. Bypass per-commit with `skip-versioning-check` for the hotfix path. Block clears when an upstream merge adds a new `## TigerBeetle X.Y.Z` to `CHANGELOG.md`. See [Releasing](#releasing).
 
 ## Building and testing
 
@@ -56,12 +57,12 @@ Re-check each fork-claimed value on every upstream merge.
 
 ## Releasing
 
-Fork releases are tagged `X.Y.Z-shopifyN` (e.g., `0.17.0-shopify1`). There are two kinds, distinguished by whether `Release.value` advances:
+Fork releases are tagged `X.Y.Z-shopifyN` (e.g., `0.17.0-shopify1`). There are two kinds, distinguished by whether the version number advances:
 
 - **Server-touching changes** must piggy-back on an upstream `X.Y.Z` bump (e.g., `0.17.1-shopify1`). The upstream wire format has no fork-counter slot, so two builds with the same `X.Y.Z` are indistinguishable to the multiversion loader and cannot coexist in a cluster.
-- **Client/tooling-only changes** (e.g., `src/shopify/tb_snapshot/`, client patches) ship as same-`X.Y.Z` `-shopifyN` bumps (e.g., `0.17.0-shopify2`) — a package release with no `Release.value` advance.
+- **Client/tooling-only changes** (e.g., `src/shopify/tb_snapshot/`, client patches) ship as same-`X.Y.Z` `-shopifyN` bumps (e.g., `0.17.0-shopify2`) — a package release with no version-number advance.
 
-The release script picks the multiversion bundling target from `SHOPIFY-CHANGELOG.md` via `extract_shopify_previous_version`, which skips same-`X.Y.Z` prior entries to avoid `Release.value` collisions. When no different-triple prior fork tag exists, it falls back to upstream `CHANGELOG.md`'s previous (e.g., `0.17.0-shopify2` bundles `0.16.78`).
+The release script picks the multiversion bundling target from `SHOPIFY-CHANGELOG.md` via `extract_shopify_previous_version`, which skips same-`X.Y.Z` prior entries to avoid version-number collisions. When no different-triple prior fork tag exists, it falls back to upstream `CHANGELOG.md`'s previous (e.g., `0.17.0-shopify2` bundles `0.16.78`).
 
 When modifying release code (`src/shopify/release.zig`, `src/scripts/release.zig`, `.shopify-build/`), trigger a Buildkite build with `VALIDATE_RELEASE_BUILD=1` to run the `Validate release build` step on a non-`release/*` branch. The step rewrites `SHOPIFY-CHANGELOG.md`'s `(unreleased)` header in place so the build exercises the real release path.
 

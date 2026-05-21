@@ -7,6 +7,18 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Tooling
 
+- [#105](https://github.com/shop/tigerbeetle/pull/105)
+
+  Add `tidy shopify fork` Check 6: refuse Shopify-authored commits that touch
+  files in the server binary's `@import` closure while the latest released fork
+  triple still matches upstream's latest. The closure is unioned across every
+  `.zig-cache/h/*.txt` manifest rooted at `src/tigerbeetle/main.zig`, so any
+  file the server actually compiles in — including `src/clients/c/` — is
+  caught, and pure fork tooling (anything not transitively imported from
+  main.zig) passes. Catches the piggy-back rule that previously lived in
+  reviewer attention. Bypass per-commit with `skip-versioning-check` for the
+  hotfix path. Release PRs (`release/*` branches) are exempt.
+
 - [#112](https://github.com/shop/tigerbeetle/pull/112)
 
   Dedup the fork-versions manifest, `release_history()`, and the `Bump

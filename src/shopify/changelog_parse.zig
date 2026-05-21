@@ -36,10 +36,10 @@ pub fn extract_shopify_latest_released_version(text: []const u8) ?[]const u8 {
 }
 
 /// Returns the most recent prior fork release whose upstream triple differs
-/// from the top entry's. Same-triple entries are skipped to avoid colliding
-/// on `Release.value` in the multiversion loader. `error.NoPreviousRelease`
-/// means the caller should fall back to `CHANGELOG.md`'s upstream-derived
-/// previous.
+/// from the top entry's. Same-triple entries are skipped because the
+/// multiversion loader would see two builds with the same version number.
+/// `error.NoPreviousRelease` means the caller should fall back to
+/// `CHANGELOG.md`'s upstream-derived previous.
 pub fn extract_shopify_previous_version(text: []const u8) error{
     UnreleasedChangelog,
     MissingChangelogEntry,
@@ -148,7 +148,7 @@ test "extract_shopify_previous_version" {
     ));
 
     // Same-triple prior entry is skipped: `0.17.0-shopify2` can't bundle
-    // `0.17.0-shopify1` because they collide on `Release.value`.
+    // `0.17.0-shopify1` because they would carry the same version number.
     try std.testing.expectError(error.NoPreviousRelease, extract_shopify_previous_version(
         \\## TigerBeetle 0.17.0-shopify2
         \\
