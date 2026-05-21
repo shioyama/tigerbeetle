@@ -3,6 +3,16 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Tooling
+
+- [#126](https://github.com/shop/tigerbeetle/pull/126)
+
+  `upstream-merge` no longer errors on finalize when run from a linked
+  worktree, where `.git` is a file and the state-file delete returns
+  `NotDir` instead of `FileNotFound`.
+
 ## TigerBeetle 0.17.1-shopify2
 
 Released: 2026-05-21
