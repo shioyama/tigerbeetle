@@ -112,4 +112,11 @@ steps:
         upload: false
     run:
       - sh .shopify-build/fetch-upstream-tags.sh
-      - ./.zig-install/zig build scripts -- release --build --shopify --sha=$BUILDKITE_COMMIT
+      # Upstream-merge branches haven't caught the fork changelog up to the new
+      # upstream triple yet; bypass fork changelog checks for validation builds.
+      - |
+        case "$BUILDKITE_BRANCH" in
+          shopify/upstream-*) EXTRA=--no-changelog ;;
+          *) EXTRA= ;;
+        esac
+        ./.zig-install/zig build scripts -- release --build --shopify $EXTRA --sha=$BUILDKITE_COMMIT

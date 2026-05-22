@@ -71,10 +71,15 @@ const VersionInfo = struct {
 pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     _ = gpa;
 
+    // [shopify] True for real fork release builds with a settled
+    // SHOPIFY-CHANGELOG.md entry; false when `--no-changelog` strips the fork
+    // release flow down to just the binary build (upstream-merge validation).
+    const shopify_release_mode = cli_args.shopify and !cli_args.no_changelog;
+
     // [shopify] Validate and pin the fork version from SHOPIFY-CHANGELOG.md.
     // SHOPIFY_PRERELEASE=N builds `<base>~rc{N}` and (like VALIDATE_RELEASE_BUILD)
     // rewrites the changelog's `(unreleased)` header in place before validation.
-    const shopify_version: ?[]const u8 = if (cli_args.shopify) blk: {
+    const shopify_version: ?[]const u8 = if (shopify_release_mode) blk: {
         const prerelease_n = try shopify_stdx.prerelease_rc_n(
             shell.env_get_option("SHOPIFY_PRERELEASE"),
         );
@@ -119,7 +124,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     var changelog_iteratator = changelog.ChangelogIterator.init(changelog_text);
     const release, var release_multiversion, const changelog_body = blk: {
         if (cli_args.no_changelog) {
-            assert(cli_args.devhub);
+            assert(cli_args.devhub or cli_args.shopify); // [shopify]
             assert(!cli_args.publish);
 
             var last_release = changelog_iteratator.next_changelog().?;
@@ -155,7 +160,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     // the fork changelog has no prior entry and we fall through to the
     // upstream-derived previous.
     const shopify_prior_tag: ?[]const u8 = blk: {
-        if (!cli_args.shopify) break :blk null;
+        if (!shopify_release_mode) break :blk null;
         const tag = try shopify_changelog.shopify_previous_version(shell) orelse
             break :blk null;
         const dash_idx = std.mem.indexOf(u8, tag, "-shopify").?;
@@ -222,7 +227,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
         try build(shell, languages, version_info, cli_args.devhub, cli_args.shopify);
 
         // [shopify] Assemble fork artifacts (.deb) from the dist tree.
-        if (cli_args.shopify) {
+        if (shopify_release_mode) {
             try shopify_release.build_artifacts(shell, shopify_version.?);
         }
     }

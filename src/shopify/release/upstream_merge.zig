@@ -242,7 +242,7 @@ fn finalize(
     try shopify_github.open_pr_compare(shell, allocator, branch, pr_title, body);
 
     shell.project_root.deleteFile(state_file) catch |err| switch (err) {
-        error.FileNotFound => {},
+        error.FileNotFound, error.NotDir => {},
         else => return err,
     };
 }
