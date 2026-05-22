@@ -103,7 +103,7 @@ Once the PR merges to `main`, the `Auto-tag fork releases` GitHub Actions workfl
 
 ### Validating release-pipeline changes off-branch
 
-The `Validate release build` step in `.shopify-build/tigerbeetle.yml` only runs on `release/*` branches by default. To exercise it on a feature branch (when modifying `src/shopify/release.zig`, `src/scripts/release.zig`, or `.shopify-build/`), set `VALIDATE_RELEASE_BUILD=1` from the Buildkite build. The release script will rewrite the `(unreleased)` header in `SHOPIFY-CHANGELOG.md` in place and exercise the release path.
+The `Validate release build` CI step defined in `.shopify-build/tigerbeetle.yml` only runs on `release/*` and `shopify/upstream-*` branches by default; everything else (`Tests`, `Fuzz`, `Client tests`) runs unconditionally on all pull requests. If you've modified logic in `src/shopify/release.zig`, `src/scripts/release.zig`, or `.shopify-build/` and want to verify it in CI on your feature branch before merging, set `VALIDATE_RELEASE_BUILD=1` from the Buildkite build. The script then rewrites the `(unreleased)` header in `SHOPIFY-CHANGELOG.md` in-place (so the rest of the release flow has a versioned entry to work with), builds the `x86_64-linux` release binary and Go client, and assembles the `.deb` package. It runs `--build` only; nothing is tagged, uploaded, or published to Cloudsmith.
 
 ## Merging upstream releases
 
