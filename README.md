@@ -15,6 +15,8 @@ Shopify's fork of [tigerbeetle/tigerbeetle](https://github.com/tigerbeetle/tiger
 
 Use the bundled `./zig/zig` binary. Run `./zig/download.sh` to fetch it.
 
+The fork releases `linux-x86_64` only. Local dev on macOS is supported (POSIX); Windows is not a target for fork-only code.
+
 Main commands:
 
 ```console
