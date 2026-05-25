@@ -1533,6 +1533,39 @@ test "Cluster: upgrade: shadower shutdown after upgrade checkpoint" {
     try expectEqual(t.replica(.S0).storage_checkpoint_release(), 10);
 }
 
+test "Cluster: upgrade: shadower shutdown checkpoint reopens" {
+    const t = try TestContext.init(.{ .replica_count = 3, .standby_count = 1 });
+    defer t.deinit();
+
+    const shadower_index = t.replica(.S0).index();
+    t.cluster.replicas[shadower_index].shadower = true;
+
+    t.replica(.R_).stop();
+    try t.replica(.R_).open_upgrade(&[_]u8{ 10, 20 });
+    t.cluster.replicas[shadower_index].shadower = true;
+
+    t.run();
+
+    try expect(t.cluster.replicas[shadower_index].shadower_must_shutdown());
+    try expectEqual(t.replica(.S0).storage_checkpoint_release(), 10);
+
+    // Reopen without the shadower flag to verify that stopping mid-commit-flow left
+    // a valid rollback datafile. Drop links to the upgraded source cluster so the
+    // reopened replica only exercises crash recovery/open, not continued shadowing.
+    t.replica(.S0).drop_all(.__, .bidirectional);
+    t.replica(.S0).stop();
+    try t.replica(.S0).open();
+    t.run();
+
+    try expectEqual(t.replica(.S0).health(), .up);
+    try expect(!t.cluster.replicas[shadower_index].shadower);
+    try expect(!t.cluster.replicas[shadower_index].shadower_must_shutdown());
+    try expect(t.replica(.S0).state_machine_opened());
+    try expectEqual(t.cluster.replicas[shadower_index].release.triple().patch, 10);
+    try expectEqual(t.replica(.S0).storage_checkpoint_release(), 10);
+    try expectEqual(t.replica(.S0).op_checkpoint(), checkpoint_1);
+}
+
 test "Cluster: upgrade: shadower shutdown after state sync across upgrade" {
     const t = try TestContext.init(.{ .replica_count = 3, .standby_count = 1 });
     defer t.deinit();
