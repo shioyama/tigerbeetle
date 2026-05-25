@@ -17,6 +17,13 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   are colorized when stderr is a terminal; `COLOR=1` / `COLOR=0` overrides
   auto-detection.
 
+- [#125](https://github.com/shop/tigerbeetle/pull/125)
+
+  Add a `test:tb-snapshot` build step and split CI into three parallel
+  Buildkite test steps. `./zig/zig build test:unit` no longer runs
+  tb-snapshot; use `./zig/zig build test:tb-snapshot` (or `test` for
+  everything).
+
 - [#126](https://github.com/shop/tigerbeetle/pull/126)
 
   `upstream-merge` no longer errors on finalize when run from a linked

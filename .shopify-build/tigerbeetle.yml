@@ -40,10 +40,9 @@ steps:
 
   - wait
 
-  - label: ':test_tube: Tests'
+  - label: ':test_tube: Unit tests'
     timeout: 10m
     env:
-      SHOPIFY_BUILD_MEMORY_LIMIT: 15g
       # `TERM=dumb` makes `zig build` skip the live progress tree (the
       # `tq`/`mq` step lines), which is rendered for any stderr that looks
       # like a TTY — Buildkite's log capture does. `COLOR=1` keeps the
@@ -65,7 +64,49 @@ steps:
         upload: false
     run:
       - sh .shopify-build/fetch-upstream-tags.sh
-      - ./.zig-install/zig build test
+      - ./.zig-install/zig build test:unit test:fmt
+  - label: ':camera_with_flash: tb-snapshot tests'
+    timeout: 10m
+    env:
+      TERM: dumb
+      COLOR: "1"
+    git:
+      history: full
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+      - path: .fork-bins
+        digest:
+          - .shopify-build/fork-versions.txt
+          - .shopify-build/fetch-fork-binaries.sh
+        upload: false
+    run:
+      - sh .shopify-build/fetch-upstream-tags.sh
+      - ./.zig-install/zig build test:tb-snapshot
+  - label: ':zap: Integration tests'
+    timeout: 10m
+    env:
+      SHOPIFY_BUILD_MEMORY_LIMIT: 15g
+      TERM: dumb
+      COLOR: "1"
+
+    git:
+      history: full
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+      - path: .fork-bins
+        digest:
+          - .shopify-build/fork-versions.txt
+          - .shopify-build/fetch-fork-binaries.sh
+        upload: false
+    run:
+      - sh .shopify-build/fetch-upstream-tags.sh
+      - ./.zig-install/zig build test:integration
   - label: ':bug: Fuzz'
     timeout: 10m
     git:

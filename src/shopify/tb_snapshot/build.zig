@@ -36,7 +36,7 @@ pub fn build_tb_snapshot_test(
     b: *std.Build,
     steps: struct {
         @"test": *std.Build.Step,
-        test_unit: *std.Build.Step,
+        test_tb_snapshot: *std.Build.Step,
         test_unit_build: *std.Build.Step,
     },
     options: struct {
@@ -72,6 +72,6 @@ pub fn build_tb_snapshot_test(
     const run = b.addRunArtifact(tests);
     if (b.args != null) run.has_side_effects = true;
 
-    steps.test_unit.dependOn(&run.step);
+    steps.test_tb_snapshot.dependOn(&run.step);
     steps.@"test".dependOn(&run.step);
 }
