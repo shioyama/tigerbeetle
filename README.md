@@ -125,8 +125,8 @@ If non-fork-owned conflicts remain, the script writes `.git/SHOPIFY_UPSTREAM_MER
 
 ## Monitoring
 
-- [TigerBeetle Cluster Monitoring](https://observe.shopify.io/goto/eflx5zifwdd6oe?orgId=1)
-- [Ledger Service](https://observe.shopify.io/goto/bflx64lmrbklcc?orgId=1)
+- [TigerBeetle Cluster Monitoring](https://observe.shopify.io/d/tigerbeetle-cluster-monitoring/tigerbeetle-cluster-monitoring?orgId=1&var-environment=staging&var-cluster=2&var-instance_name=$__all&refresh=1m)
+- [Ledger Service](https://observe.shopify.io/d/ledger-service/ledger-service?orgId=1&from=now-1h&to=now&timezone=browser&var-env=production&refresh=1m)
 
 ## Resources
 
