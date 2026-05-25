@@ -7,6 +7,23 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Tooling
 
+- [#125](https://github.com/shop/tigerbeetle/pull/125)
+
+  Swap in a custom `.mode = .simple` test runner (`src/shopify/test_runner.zig`)
+  on every `zig build test` artifact (stdx, unit, integration, tb-snapshot) so
+  the build system stops gluing test failures onto the per-step error format.
+  Default output is one dot per pass with a break-out `name... FAIL` line on
+  failure; `VERBOSE=1` switches to one line per test. Pass/skip/fail markers
+  are colorized when stderr is a terminal; `COLOR=1` / `COLOR=0` overrides
+  auto-detection.
+
+- [#125](https://github.com/shop/tigerbeetle/pull/125)
+
+  Add a `test:tb-snapshot` build step and split CI into three parallel
+  Buildkite test steps. `./zig/zig build test:unit` no longer runs
+  tb-snapshot; use `./zig/zig build test:tb-snapshot` (or `test` for
+  everything).
+
 - [#126](https://github.com/shop/tigerbeetle/pull/126)
 
   `upstream-merge` no longer errors on finalize when run from a linked

@@ -97,6 +97,7 @@ pub fn build(b: *std.Build) !void {
         .test_integration_build = b.step("test:integration:build", "Build integration tests"),
         .test_unit = b.step("test:unit", "Run unit tests"),
         .test_unit_build = b.step("test:unit:build", "Build unit tests"),
+        .test_tb_snapshot = b.step("test:tb-snapshot", "Run tb-snapshot tests"), // [shopify]
         .test_jni = b.step("test:jni", "Run Java JNI tests"),
         .vopr = b.step("vopr", "Run the VOPR"),
         .vopr_build = b.step("vopr:build", "Build the VOPR"),
@@ -293,6 +294,7 @@ pub fn build(b: *std.Build) !void {
     try build_test(b, .{
         .test_unit = build_steps.test_unit,
         .test_unit_build = build_steps.test_unit_build,
+        .test_tb_snapshot = build_steps.test_tb_snapshot, // [shopify]
         .test_integration = build_steps.test_integration,
         .test_integration_build = build_steps.test_integration_build,
         .test_fmt = build_steps.test_fmt,
@@ -869,6 +871,7 @@ fn build_test(
     steps: struct {
         test_unit: *std.Build.Step,
         test_unit_build: *std.Build.Step,
+        test_tb_snapshot: *std.Build.Step, // [shopify]
         test_integration: *std.Build.Step,
         test_integration_build: *std.Build.Step,
         test_fmt: *std.Build.Step,
@@ -896,6 +899,13 @@ fn build_test(
         if (std.mem.indexOf(u8, arg, "benchmark") != null) break true;
     } else false);
 
+    // [shopify] Simple-mode runner so we own the failure output. Shared across
+    // every `b.addTest` that feeds into `zig build test`.
+    const shopify_test_runner: std.Build.Step.Compile.TestRunner = .{
+        .path = b.path("src/shopify/test_runner.zig"),
+        .mode = .simple,
+    };
+
     const stdx_unit_tests = b.addTest(.{
         .name = "test-stdx",
         .root_module = b.createModule(.{
@@ -904,6 +914,7 @@ fn build_test(
             .optimize = options.mode,
         }),
         .filters = b.args orelse &.{},
+        .test_runner = shopify_test_runner, // [shopify]
     });
     const unit_tests = b.addTest(.{
         .name = "test-unit",
@@ -913,6 +924,7 @@ fn build_test(
             .optimize = options.mode,
         }),
         .filters = b.args orelse &.{},
+        .test_runner = shopify_test_runner, // [shopify]
     });
     unit_tests.root_module.addImport("stdx", options.stdx_module);
     unit_tests.root_module.addOptions("vsr_options", options.vsr_options_test);
@@ -937,7 +949,7 @@ fn build_test(
     // [shopify]
     shopify_tb_snapshot.build_tb_snapshot_test(b, .{
         .@"test" = steps.@"test",
-        .test_unit = steps.test_unit,
+        .test_tb_snapshot = steps.test_tb_snapshot,
         .test_unit_build = steps.test_unit_build,
     }, .{
         .stdx_module = options.stdx_module,
@@ -1012,6 +1024,11 @@ fn build_test_integration(
             .optimize = options.mode,
         }),
         .filters = b.args orelse &.{},
+        // [shopify] Simple-mode runner; see `src/shopify/test_runner.zig`.
+        .test_runner = .{
+            .path = b.path("src/shopify/test_runner.zig"),
+            .mode = .simple,
+        },
     });
     integration_tests.root_module.addImport("stdx", options.stdx_module);
     integration_tests.root_module.addOptions("vsr_options", options.vsr_options_test);
