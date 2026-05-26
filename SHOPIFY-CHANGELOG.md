@@ -46,6 +46,13 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   SHOPIFY-CHANGELOG.md validation and `.deb` artifact assembly. Lets the
   upstream-merge validation build pass before the fork changelog catches up.
 
+- [#132](https://github.com/shop/tigerbeetle/pull/132)
+
+  Append upstream `CHANGELOG.md` release notes to the `shopify-release` PR body
+  when cutting `-shopify1` for a new upstream base. The notes use the same body
+  text that `upstream-merge` pre-fills, separated from fork notes by a
+  horizontal rule, and are omitted from later same-base fork releases.
+
 ## TigerBeetle 0.17.1-shopify2
 
 Released: 2026-05-21
