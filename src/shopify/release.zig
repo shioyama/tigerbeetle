@@ -174,7 +174,7 @@ fn prepare_shopify_text_for_release(
         return null;
     }
 
-    return insert_upstream_merge_entry(allocator, prep.shopify_text);
+    return try insert_upstream_merge_entry(allocator, prep.shopify_text);
 }
 
 fn confirm_release(allocator: std.mem.Allocator, version: []const u8) !bool {
