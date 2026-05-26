@@ -9,6 +9,7 @@ Shopify's fork of [tigerbeetle/tigerbeetle](https://github.com/tigerbeetle/tiger
 | `src/shopify/` | Fork-specific Zig source. `tidy.zig`, `changelog.zig`, `release.zig`, plus tools like `tb_snapshot/`. New fork logic goes here. |
 | `.shopify-build/` | Buildkite pipelines (`tigerbeetle.yml`, `tigerbeetle-publish-package.yml`), fetch scripts, the `VERSION` marker, and `fork-versions.txt`. |
 | `SHOPIFY-CHANGELOG.md` | Fork release notes, grouped per fork release. |
+| `docs/shopify/` | Fork-specific operational docs and runbooks. |
 | `// [shopify]` markers | In-line annotations on fork modifications to upstream files. |
 
 ## Building and testing
@@ -56,7 +57,7 @@ TigerBeetle coordinates upgrades using the version triple (`X.Y.Z`) stored on di
 
 To accommodate this situation, **we only release server-changing patches in the first fork release of an upstream patch version**. For more details on this strategy see [RFC 035](https://github.com/ShopifyFRS/fintech-foundations/issues/1156).
 
-As a practical outcome, we have implemented a check to ensure that server-touching changes are not published in a non-`shopify1` release. If you are shipping a change that impacts the cluster itself, you must ship that change as a `shopify1` release in order to use TigerBeetle's in-place upgrade mechanism. The only exception to this rule is a hotfix change that cannot piggy-back on an upstream patch release; in that case, add `skip-versioning-check` to the commit message to bypass the check.
+As a practical outcome, we have implemented a check to ensure that server-touching changes are not published in a non-`shopify1` release. If you are shipping a change that impacts the cluster itself, you must ship that change as a `shopify1` release in order to use TigerBeetle's in-place upgrade mechanism. The only exception to this rule is a hotfix change that should not piggy-back on an upstream patch release; in that case, follow the [cluster hotfix runbook](docs/shopify/cluster-hotfix-runbook.md) and add `skip-versioning-check` to the commit message to bypass the check.
 
 ## Conventions
 
