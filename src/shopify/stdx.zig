@@ -10,6 +10,16 @@ pub fn truthy(val: ?[]const u8) bool {
     return false;
 }
 
+pub fn read_yes(allocator: std.mem.Allocator, reader: anytype) !bool {
+    const answer = reader.readUntilDelimiterAlloc(allocator, '\n', 256) catch |err| switch (err) {
+        error.EndOfStream => return true,
+        else => return err,
+    };
+    defer allocator.free(answer);
+
+    return answer.len == 0 or answer[0] == 'Y' or answer[0] == 'y';
+}
+
 /// Parses the `SHOPIFY_PRERELEASE` env var value as the RC number for a
 /// prerelease build. Returns `null` when the env var is unset or empty (i.e.
 /// not a prerelease). Errors when the env var is set but isn't a non-negative
@@ -87,6 +97,23 @@ test is_fork_release_tag {
     try std.testing.expect(!is_fork_release_tag("v0.17.1-shopify1"));
     try std.testing.expect(!is_fork_release_tag("0.17.x-shopify1"));
     try std.testing.expect(!is_fork_release_tag("-shopify1"));
+}
+
+test read_yes {
+    var empty = std.io.fixedBufferStream("");
+    try std.testing.expect(try read_yes(std.testing.allocator, empty.reader()));
+
+    var default_yes = std.io.fixedBufferStream("\n");
+    try std.testing.expect(try read_yes(std.testing.allocator, default_yes.reader()));
+
+    var explicit_yes = std.io.fixedBufferStream("Y\n");
+    try std.testing.expect(try read_yes(std.testing.allocator, explicit_yes.reader()));
+
+    var explicit_lower_yes = std.io.fixedBufferStream("y\n");
+    try std.testing.expect(try read_yes(std.testing.allocator, explicit_lower_yes.reader()));
+
+    var no = std.io.fixedBufferStream("n\n");
+    try std.testing.expect(!try read_yes(std.testing.allocator, no.reader()));
 }
 
 test truthy {

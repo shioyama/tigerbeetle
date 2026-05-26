@@ -16,12 +16,14 @@ const Shell = @import("../shell.zig");
 const ChangelogIterator = @import("../scripts/changelog.zig").ChangelogIterator;
 const shopify_changelog = @import("./changelog.zig");
 const shopify_github = @import("./github.zig");
+const shopify_stdx = @import("./stdx.zig");
 
 const changelog_bytes_max = 10 * stdx.MiB;
 const unreleased_header = "## TigerBeetle (unreleased)";
 
 const ReleasePrep = struct {
     shopify_text: []const u8,
+    upstream_changelog_body: []const u8,
     base_version: []const u8,
     version: []const u8,
     has_unreleased: bool,
@@ -43,15 +45,18 @@ fn read_release_prep(shell: *Shell) !ReleasePrep {
     );
 
     var upstream_it = ChangelogIterator.init(upstream_text);
-    const upstream_release = while (upstream_it.next_changelog()) |entry| {
-        if (entry.release != null) break entry.release.?;
+    const upstream_changelog = while (upstream_it.next_changelog()) |entry| {
+        if (entry.release) |release| break .{
+            .release = release,
+            .body = entry.text_body,
+        };
     } else {
         log.err("no release found in CHANGELOG.md", .{});
         return error.MissingUpstreamRelease;
     };
     const base_version = try shell.fmt(
         "{[major]}.{[minor]}.{[patch]}",
-        upstream_release.triple(),
+        upstream_changelog.release.triple(),
     );
 
     const next_n = next_shopify_n(shopify_text, base_version);
@@ -59,6 +64,7 @@ fn read_release_prep(shell: *Shell) !ReleasePrep {
 
     return .{
         .shopify_text = shopify_text,
+        .upstream_changelog_body = upstream_changelog.body,
         .base_version = base_version,
         .version = version,
         .has_unreleased = std.mem.indexOf(u8, shopify_text, unreleased_header) != null,
@@ -108,40 +114,9 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
     const allocator = shell.arena.allocator();
 
     const prep = try read_release_prep(shell);
-    var shopify_text = prep.shopify_text;
     const version = prep.version;
-
-    const stdout = std.io.getStdOut().writer();
-    const stdin = std.io.getStdIn().reader();
-
-    if (!prep.has_unreleased) {
-        if (prep.next_n > 1) {
-            log.err("SHOPIFY-CHANGELOG.md has no unreleased section — nothing to release", .{});
-            return error.NoUnreleasedSection;
-        }
-
-        try stdout.print(
-            "No unreleased section in SHOPIFY-CHANGELOG.md.\n" ++
-                "This is the first release on upstream {s}. " ++
-                "Add an \"Upstream merge\" entry? [Y/n] ",
-            .{prep.base_version},
-        );
-        const merge_answer = stdin.readUntilDelimiterAlloc(allocator, '\n', 256) catch "";
-        if (merge_answer.len > 0 and merge_answer[0] != 'Y' and merge_answer[0] != 'y') {
-            try stdout.print("Aborted.\n", .{});
-            return;
-        }
-
-        shopify_text = try insert_upstream_merge_entry(allocator, shopify_text);
-    }
-
-    try stdout.print("Next release version: {s}\nProceed? [Y/n] ", .{version});
-
-    const answer = stdin.readUntilDelimiterAlloc(allocator, '\n', 256) catch "";
-    if (answer.len > 0 and answer[0] != 'Y' and answer[0] != 'y') {
-        try stdout.print("Aborted.\n", .{});
-        return;
-    }
+    const shopify_text = (try prepare_shopify_text_for_release(allocator, prep)) orelse return;
+    if (!try confirm_release(allocator, version)) return;
 
     const branch = try shell.fmt("release/{s}", .{version});
     try shell.exec("git fetch origin --quiet", .{});
@@ -157,18 +132,68 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
     try shell.exec("git push -u origin {branch}", .{ .branch = branch });
 
     const changelog_body = extract_changelog_body(updated_text, version);
-    const pr_body = try compose_release_pr_body(shell, version, changelog_body);
+    // Same-base `-shopifyN>1` releases already carried the upstream notes in
+    // `-shopify1`; keep hotfix PR bodies focused on fork-only changes.
+    const upstream_changelog_body: ?[]const u8 = if (prep.next_n == 1)
+        prep.upstream_changelog_body
+    else
+        null;
+    const pr_body = try compose_release_pr_body(
+        shell,
+        version,
+        changelog_body,
+        prep.base_version,
+        upstream_changelog_body,
+    );
 
     const pr_title = try shell.fmt("Release {s}", .{version});
     try shopify_github.open_pr_compare(shell, allocator, branch, pr_title, pr_body);
+}
+
+fn prepare_shopify_text_for_release(
+    allocator: std.mem.Allocator,
+    prep: ReleasePrep,
+) !?[]const u8 {
+    if (prep.has_unreleased) return prep.shopify_text;
+
+    if (prep.next_n > 1) {
+        log.err("SHOPIFY-CHANGELOG.md has no unreleased section — nothing to release", .{});
+        return error.NoUnreleasedSection;
+    }
+
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print(
+        "No unreleased section in SHOPIFY-CHANGELOG.md.\n" ++
+            "This is the first release on upstream {s}. " ++
+            "Add an \"Upstream merge\" entry? [Y/n] ",
+        .{prep.base_version},
+    );
+    const stdin = std.io.getStdIn().reader();
+    if (!try shopify_stdx.read_yes(allocator, stdin)) {
+        try stdout.print("Aborted.\n", .{});
+        return null;
+    }
+
+    return insert_upstream_merge_entry(allocator, prep.shopify_text);
+}
+
+fn confirm_release(allocator: std.mem.Allocator, version: []const u8) !bool {
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print("Next release version: {s}\nProceed? [Y/n] ", .{version});
+    const stdin = std.io.getStdIn().reader();
+    const confirmed = try shopify_stdx.read_yes(allocator, stdin);
+    if (!confirmed) try stdout.print("Aborted.\n", .{});
+    return confirmed;
 }
 
 fn compose_release_pr_body(
     shell: *Shell,
     version: []const u8,
     changelog_body: []const u8,
+    base_version: []const u8,
+    upstream_changelog_body: ?[]const u8,
 ) ![]const u8 {
-    return shell.fmt(
+    const pr_body = try shell.fmt(
         "## Release candidates\n\n" ++
             "To publish a release candidate from this branch before merging, " ++
             "[open the `tigerbeetle-publish-package` build form]" ++
@@ -180,6 +205,34 @@ fn compose_release_pr_body(
             "---\n\n{s}",
         .{ version, version, version, changelog_body },
     );
+
+    return if (upstream_changelog_body) |body|
+        append_upstream_changelog_body(
+            shell.arena.allocator(),
+            pr_body,
+            base_version,
+            body,
+        )
+    else
+        pr_body;
+}
+
+fn append_upstream_changelog_body(
+    allocator: std.mem.Allocator,
+    pr_body: []const u8,
+    base_version: []const u8,
+    upstream_changelog_body: []const u8,
+) ![]const u8 {
+    const trimmed_body = std.mem.trim(u8, upstream_changelog_body, "\r\n");
+    if (trimmed_body.len == 0) return pr_body;
+
+    return std.mem.concat(allocator, u8, &.{
+        pr_body,
+        "\n\n---\n\n## Upstream TigerBeetle ",
+        base_version,
+        "\n\n",
+        trimmed_body,
+    });
 }
 
 /// Build the Shopify fork artifacts (the `.deb` package). Called from
@@ -446,6 +499,46 @@ fn extract_changelog_body(text: []const u8, version: []const u8) []const u8 {
         text.len;
 
     return std.mem.trim(u8, text[body_start..body_end], "\n");
+}
+
+test "append_upstream_changelog_body" {
+    const upstream_body =
+        \\### Features
+        \\
+        \\- [#1234](https://github.com/tigerbeetle/tigerbeetle/pull/1234)
+        \\
+        \\  Upstream change.
+        \\
+    ;
+    const result = try append_upstream_changelog_body(
+        std.testing.allocator,
+        "fork release body",
+        "0.17.2",
+        upstream_body,
+    );
+    defer std.testing.allocator.free(result);
+
+    try std.testing.expectEqualStrings(
+        \\fork release body
+        \\
+        \\---
+        \\
+        \\## Upstream TigerBeetle 0.17.2
+        \\
+        \\### Features
+        \\
+        \\- [#1234](https://github.com/tigerbeetle/tigerbeetle/pull/1234)
+        \\
+        \\  Upstream change.
+    , result);
+
+    const unchanged = try append_upstream_changelog_body(
+        std.testing.allocator,
+        "fork release body",
+        "0.17.2",
+        "\n\n",
+    );
+    try std.testing.expectEqualStrings("fork release body", unchanged);
 }
 
 test "extract_changelog_body" {
