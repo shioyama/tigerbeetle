@@ -24,3 +24,43 @@ pub fn add_to_tigerbeetle(
     shadow.addImport("vsr", vsr_module);
     root_module.addImport("shopify_shadow", shadow);
 }
+
+pub fn build_shadow_test(
+    b: *std.Build,
+    steps: struct {
+        @"test": *std.Build.Step,
+        test_unit: *std.Build.Step,
+        test_unit_build: *std.Build.Step,
+    },
+    options: struct {
+        stdx_module: *std.Build.Module,
+        vsr_module_test: *std.Build.Module,
+        vsr_options_test: *std.Build.Step.Options,
+        target: std.Build.ResolvedTarget,
+        mode: std.builtin.OptimizeMode,
+    },
+) void {
+    // shadow.zig tests live in a separate artifact because shadow.zig imports
+    // `vsr` as a module, which conflicts with unit_tests.zig directly importing
+    // src/vsr.zig.
+    const tests = b.addTest(.{
+        .name = "test-shadow",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/shopify/shadow.zig"),
+            .target = options.target,
+            .optimize = options.mode,
+        }),
+        .filters = b.args orelse &.{},
+    });
+    tests.root_module.addImport("stdx", options.stdx_module);
+    tests.root_module.addImport("vsr", options.vsr_module_test);
+    tests.root_module.addOptions("vsr_options", options.vsr_options_test);
+
+    steps.test_unit_build.dependOn(&b.addInstallArtifact(tests, .{}).step);
+
+    const run = b.addRunArtifact(tests);
+    if (b.args != null) run.has_side_effects = true;
+
+    steps.test_unit.dependOn(&run.step);
+    steps.@"test".dependOn(&run.step);
+}

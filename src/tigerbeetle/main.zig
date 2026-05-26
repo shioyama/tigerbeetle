@@ -533,6 +533,18 @@ fn command_start(
     while (true) {
         replica.tick();
         try io.run_for_ns(constants.tick_ms * std.time.ns_per_ms);
+
+        // [shopify] The old shadower is now a rollback artifact. Stop before it
+        // can continue shadowing the upgraded source cluster; operators can
+        // restart the datafile explicitly as its own cluster if rollback is needed.
+        if (replica.shadower_must_shutdown()) {
+            log.info(
+                "{}: shadow shutdown-on-upgrade triggered; shutting down",
+                .{replica.replica},
+            );
+            replica.deinit(gpa);
+            return;
+        }
     }
 }
 
