@@ -22,6 +22,7 @@ const ratio = stdx.PRNG.ratio;
 
 const vortex_exe: []const u8 = @import("test_options").vortex_exe;
 const tigerbeetle: []const u8 = @import("test_options").tigerbeetle_exe;
+const tigerbeetle_next: []const u8 = @import("test_options").tigerbeetle_next_exe;
 
 comptime {
     _ = @import("clients/c/tb_client_header_test.zig");
@@ -625,6 +626,117 @@ test "shadow cluster" {
     // reconciliation first. Cleanup is handled by defers.
 
     log.info("shadow cluster test passed", .{});
+}
+
+test "shadow shutdown-on-upgrade exits cleanly" {
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
+
+    const gpa = std.testing.allocator;
+    const shell = try Shell.create(gpa);
+    defer shell.destroy();
+
+    const source_address = "127.0.0.1:7230";
+    const shadow_address = "127.0.0.1:7231";
+    const tmp = try shell.fmt(
+        "./.zig-cache/tmp/{}",
+        .{std.crypto.random.int(u64)},
+    );
+    defer shell.cwd.deleteTree(tmp) catch {};
+
+    try shell.cwd.makePath(tmp);
+
+    const source_datafile = try shell.fmt("{s}/source_0_0.tigerbeetle", .{tmp});
+    const shadow_datafile = try shell.fmt("{s}/shadow_0_0.tigerbeetle", .{tmp});
+
+    const Context = struct {
+        fn kill_wait(process_maybe: *?std.process.Child) void {
+            if (process_maybe.*) |*process| {
+                _ = process.kill() catch {};
+                _ = process.wait() catch {};
+                process_maybe.* = null;
+            }
+        }
+
+        fn wait_for_cluster(shell_: *Shell, executable: []const u8, address: []const u8) !void {
+            for (0..20) |_| {
+                const result = try shell_.exec_raw(
+                    "{tigerbeetle} repl --cluster=0 --addresses={address}" ++
+                        " --command={command}",
+                    .{
+                        .tigerbeetle = executable,
+                        .address = address,
+                        .command = "lookup_accounts id=0",
+                    },
+                );
+                if (std.mem.indexOf(u8, result.stderr, "connected to=0") != null) return;
+                std.time.sleep(250 * std.time.ns_per_ms);
+            }
+            return error.ClusterDidNotStart;
+        }
+    };
+
+    try shell.exec(
+        "{tigerbeetle} format --cluster=0 --replica=0 --replica-count=1 {datafile}",
+        .{ .tigerbeetle = tigerbeetle, .datafile = source_datafile },
+    );
+
+    try shell.cwd.copyFile(source_datafile, shell.cwd, shadow_datafile, .{});
+
+    var source_process: ?std.process.Child = try shell.spawn(
+        .{},
+        "{tigerbeetle} start --experimental" ++
+            " --shadower-count=1 --addresses={address} {datafile}",
+        .{
+            .tigerbeetle = tigerbeetle,
+            .address = source_address,
+            .datafile = source_datafile,
+        },
+    );
+    defer Context.kill_wait(&source_process);
+
+    try Context.wait_for_cluster(shell, tigerbeetle, source_address);
+
+    var shadow_process: ?std.process.Child = try shell.spawn(
+        .{},
+        "{tigerbeetle} start --experimental" ++
+            " --addresses={shadow_address}" ++
+            " --shadow={source_address} {datafile}",
+        .{
+            .tigerbeetle = tigerbeetle,
+            .shadow_address = shadow_address,
+            .source_address = source_address,
+            .datafile = shadow_datafile,
+        },
+    );
+    defer Context.kill_wait(&shadow_process);
+
+    std.time.sleep(std.time.ns_per_s);
+    Context.kill_wait(&source_process);
+    source_process = try shell.spawn(
+        .{},
+        "{tigerbeetle} start --experimental" ++
+            " --shadower-count=1 --addresses={address} {datafile}",
+        .{
+            .tigerbeetle = tigerbeetle_next,
+            .address = source_address,
+            .datafile = source_datafile,
+        },
+    );
+    try Context.wait_for_cluster(shell, tigerbeetle, source_address);
+
+    for (0..120) |_| {
+        const ret = std.posix.waitpid(shadow_process.?.id, std.posix.W.NOHANG);
+        if (ret.pid != 0) {
+            shadow_process = null;
+            try std.testing.expectEqual(
+                std.process.Child.Term{ .Exited = 0 },
+                stdx.term_from_status(ret.status),
+            );
+            return;
+        }
+        std.time.sleep(250 * std.time.ns_per_ms);
+    }
+    return error.ShadowDidNotExit;
 }
 
 test "shadow cluster multi-replica" {

@@ -542,6 +542,7 @@ fn command_start(
                 "{}: shadow shutdown-on-upgrade triggered; shutting down",
                 .{replica.replica},
             );
+            replica.deinit(gpa);
             return;
         }
     }
