@@ -39,7 +39,40 @@ const changelog_parse = @import("changelog_parse.zig");
 const validate_shopify_changelog_structure =
     @import("changelog.zig").validate_shopify_changelog_structure;
 
+var diagnostics_started = false;
+
+fn print_diagnostic(comptime format: []const u8, args: anytype) void {
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
+
+    const stderr = std.io.getStdErr().writer();
+    if (!diagnostics_started) {
+        diagnostics_started = true;
+        if (!shopify_stdx.truthy(std.posix.getenv("VERBOSE"))) {
+            stderr.writeAll("\n") catch return;
+        }
+    }
+
+    const tty_config: std.io.tty.Config = if (std.posix.getenv("COLOR")) |v|
+        if (shopify_stdx.truthy(v)) .escape_codes else .no_color
+    else
+        std.io.tty.detectConfig(std.io.getStdErr());
+    tty_config.setColor(stderr, diagnostic_color(format)) catch {};
+    defer tty_config.setColor(stderr, .reset) catch {};
+
+    stderr.print(format, args) catch {};
+}
+
+fn diagnostic_color(comptime format: []const u8) std.io.tty.Color {
+    if (mem.indexOf(u8, format, "error:") != null) return .bright_magenta;
+    if (mem.indexOf(u8, format, "warning:") != null) return .bright_yellow;
+    if (mem.indexOf(u8, format, "note:") != null) return .bright_cyan;
+    return .bright_white;
+}
+
 test "tidy shopify fork" {
+    diagnostics_started = false;
+
     const allocator = std.testing.allocator;
     const shell = try Shell.create(allocator);
     defer shell.destroy();
@@ -58,7 +91,7 @@ test "tidy shopify fork" {
     const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse "main";
 
     shell.exec("git fetch origin {base_branch}", .{ .base_branch = base_branch }) catch {
-        std.debug.print(
+        print_diagnostic(
             "warning: could not fetch base branch '{s}', skipping\n",
             .{base_branch},
         );
@@ -110,7 +143,7 @@ test "tidy shopify fork" {
 
             // Check 1: [shopify] prefix, only for Shopify-authored commits.
             if (shopify_authored and !mem.startsWith(u8, subject, "[shopify]")) {
-                std.debug.print(
+                print_diagnostic(
                     "{s}: error: commit subject missing `[shopify]` prefix: {s}\n",
                     .{ short_sha, subject },
                 );
@@ -121,7 +154,7 @@ test "tidy shopify fork" {
             // src/ changes only; other commits in the PR still trigger the check.
             const changelog_skipped = mem.indexOf(u8, msg, "skip-changelog-check") != null;
             if (changelog_skipped) {
-                std.debug.print(
+                print_diagnostic(
                     "{s}: note: skip-changelog-check applied\n",
                     .{short_sha},
                 );
@@ -131,7 +164,7 @@ test "tidy shopify fork" {
             // hotfixes typically still require a changelog entry.
             const versioning_skipped = mem.indexOf(u8, msg, "skip-versioning-check") != null;
             if (server_changes_blocked and versioning_skipped) {
-                std.debug.print(
+                print_diagnostic(
                     "{s}: note: skip-versioning-check applied\n",
                     .{short_sha},
                 );
@@ -161,7 +194,7 @@ test "tidy shopify fork" {
                     !versioning_skipped and
                     server_closure.contains(path))
                 {
-                    std.debug.print(
+                    print_diagnostic(
                         "{s}: error: server-touching change during same-`X.Y.Z` " ++
                             "fork bump (commit {s})\n",
                         .{ path, short_sha },
@@ -172,7 +205,7 @@ test "tidy shopify fork" {
         }
         if (has_bad_commits) return error.BadCommitPrefix;
         if (has_unskipped_src_changes and !changelog_changed) {
-            std.debug.print(
+            print_diagnostic(
                 "SHOPIFY-CHANGELOG.md: error: must be updated when non-test " ++
                     "`src/` files change\n",
                 .{},
@@ -205,7 +238,7 @@ fn validate_snake_case_functions(shell: *Shell) !void {
         while (lines.next()) |line| {
             line_number += 1;
             const offender = find_camel_case_fn(line) orelse continue;
-            std.debug.print(
+            print_diagnostic(
                 "{s}:{d}: error: function `{s}` should use snake_case\n",
                 .{ path, line_number, offender },
             );
@@ -232,7 +265,7 @@ fn validate_fork_versions_manifest(shell: *Shell) !void {
         "git tag --merged HEAD^ --sort=-committerdate",
         .{},
     ) catch {
-        std.debug.print(
+        print_diagnostic(
             "warning: could not list git tags, skipping fork-versions check\n",
             .{},
         );
@@ -259,7 +292,7 @@ fn validate_fork_versions_manifest(shell: *Shell) !void {
         fork_versions_manifest,
         4096,
     ) catch |err| {
-        std.debug.print(
+        print_diagnostic(
             "{s}: error: could not read ({s})\n",
             .{ fork_versions_manifest, @errorName(err) },
         );
@@ -267,7 +300,7 @@ fn validate_fork_versions_manifest(shell: *Shell) !void {
     };
 
     if (!mem.eql(u8, manifest, expected.items)) {
-        std.debug.print(
+        print_diagnostic(
             "{s}: error: out of sync with git tags\n" ++
                 "expected (latest -shopifyN per X.Y.Z base reachable from " ++
                 "HEAD^, newest first, capped at {d} patch lines):\n" ++
@@ -356,7 +389,7 @@ fn compute_server_closure(
         ".zig-cache/h",
         .{ .iterate = true },
     ) catch |err| {
-        std.debug.print(
+        print_diagnostic(
             ".zig-cache/h: error: cannot open ({s}); " ++
                 "run `./zig/zig build` first to populate the build cache\n",
             .{@errorName(err)},
@@ -397,7 +430,7 @@ fn compute_server_closure(
     }
 
     if (matched == 0) {
-        std.debug.print(
+        print_diagnostic(
             ".zig-cache/h: error: no `src/tigerbeetle/main.zig`-rooted " ++
                 "manifest; run `./zig/zig build` first to populate the " ++
                 "build cache\n",
