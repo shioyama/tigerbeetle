@@ -96,15 +96,27 @@ fn write_release_changelog(
     return updated_text;
 }
 
-/// Rewrite an `(unreleased)` header into a versioned, dated header in place,
-/// without committing. No-op if the changelog has no unreleased section.
+/// Rewrite the fork changelog into the same shape a release branch would carry,
+/// without committing.
 pub fn prepare_validation_release(shell: *Shell) !void {
     const prep = try read_release_prep(shell);
-    if (!prep.has_unreleased) {
+    const shopify_text = if (prep.has_unreleased)
+        prep.shopify_text
+    else if (prep.next_n == 1) blk: {
+        log.info(
+            "SHOPIFY-CHANGELOG.md has no unreleased section; " ++
+                "synthesizing date-only release entry",
+            .{},
+        );
+        break :blk try insert_empty_unreleased_section(
+            shell.arena.allocator(),
+            prep.shopify_text,
+        );
+    } else {
         log.info("SHOPIFY-CHANGELOG.md has no unreleased section; skipping rewrite", .{});
         return;
-    }
-    _ = try write_release_changelog(shell, prep.shopify_text, prep.version);
+    };
+    _ = try write_release_changelog(shell, shopify_text, prep.version);
     log.info("SHOPIFY-CHANGELOG.md finalized in-place as {s}", .{prep.version});
 }
 
@@ -125,6 +137,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
     const updated_text = try write_release_changelog(shell, shopify_text, version);
 
     try shopify_changelog.validate_shopify_release(shell, version);
+    try shopify_changelog.validate_shopify_changelog_structure(shell);
 
     const commit_msg = try shell.fmt("[shopify] Release {s}", .{version});
     try shell.exec("git add SHOPIFY-CHANGELOG.md", .{});
@@ -156,25 +169,24 @@ fn prepare_shopify_text_for_release(
 ) !?[]const u8 {
     if (prep.has_unreleased) return prep.shopify_text;
 
-    if (prep.next_n > 1) {
-        log.err("SHOPIFY-CHANGELOG.md has no unreleased section — nothing to release", .{});
-        return error.NoUnreleasedSection;
-    }
-
     const stdout = std.io.getStdOut().writer();
-    try stdout.print(
-        "No unreleased section in SHOPIFY-CHANGELOG.md.\n" ++
-            "This is the first release on upstream {s}. " ++
-            "Add an \"Upstream merge\" entry? [Y/n] ",
-        .{prep.base_version},
-    );
-    const stdin = std.io.getStdIn().reader();
-    if (!try shopify_stdx.read_yes(allocator, stdin)) {
-        try stdout.print("Aborted.\n", .{});
+    if (prep.next_n > 1) {
+        try stdout.print(
+            "SHOPIFY-CHANGELOG.md has no unreleased section and upstream " ++
+                "{s} already has a fork release; nothing to release.\n",
+            .{prep.base_version},
+        );
         return null;
     }
 
-    return try insert_upstream_merge_entry(allocator, prep.shopify_text);
+    try stdout.print(
+        "No unreleased section in SHOPIFY-CHANGELOG.md.\n" ++
+            "This is the first release on upstream {s}; " ++
+            "creating a date-only changelog entry.\n",
+        .{prep.base_version},
+    );
+
+    return try insert_empty_unreleased_section(allocator, prep.shopify_text);
 }
 
 fn confirm_release(allocator: std.mem.Allocator, version: []const u8) !bool {
@@ -450,18 +462,18 @@ fn next_shopify_n(shopify_text: []const u8, base_version: []const u8) u16 {
     return highest_n + 1;
 }
 
-/// Inserts an unreleased section with an "Upstream merge" entry before the first
-/// version header in the changelog. Used when cutting the first shopify release
-/// on a new upstream version.
-fn insert_upstream_merge_entry(allocator: std.mem.Allocator, shopify_text: []const u8) ![]u8 {
+/// Upstream-only releases still need a fork version header for binary stamping.
+fn insert_empty_unreleased_section(
+    allocator: std.mem.Allocator,
+    shopify_text: []const u8,
+) ![]u8 {
     const insert_pos = std.mem.indexOf(u8, shopify_text, "\n## TigerBeetle ") orelse {
         log.err("SHOPIFY-CHANGELOG.md has no version entries", .{});
         return error.MalformedChangelog;
     };
     return std.mem.concat(allocator, u8, &.{
         shopify_text[0..insert_pos],
-        "\n" ++ unreleased_header ++ "\n\n### Upstream\n\n" ++
-            "- Merged upstream TigerBeetle changes\n\n",
+        "\n" ++ unreleased_header ++ "\n\n",
         shopify_text[insert_pos + 1 ..],
     });
 }
@@ -613,7 +625,7 @@ test "next_shopify_n" {
     try std.testing.expectEqual(@as(u16, 1), next_shopify_n(text, "0.16.79"));
 }
 
-test "insert_upstream_merge_entry" {
+test "insert_empty_unreleased_section" {
     const text =
         \\# Shopify Changelog
         \\
@@ -624,7 +636,7 @@ test "insert_upstream_merge_entry" {
         \\Released: 2026-04-15
     ;
 
-    const result = try insert_upstream_merge_entry(std.testing.allocator, text);
+    const result = try insert_empty_unreleased_section(std.testing.allocator, text);
     defer std.testing.allocator.free(result);
 
     try std.testing.expectEqualStrings(
@@ -633,10 +645,6 @@ test "insert_upstream_merge_entry" {
         \\Changes made in this fork, organized by release.
         \\
         \\## TigerBeetle (unreleased)
-        \\
-        \\### Upstream
-        \\
-        \\- Merged upstream TigerBeetle changes
         \\
         \\## TigerBeetle 0.16.78-shopify3
         \\
@@ -682,4 +690,33 @@ test "update_changelog_for_release" {
         \\
         \\Released: 2026-04-15
     , result);
+
+    const empty =
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle (unreleased)
+        \\
+        \\## TigerBeetle 0.16.78-shopify3
+        \\
+        \\Released: 2026-04-15
+    ;
+    const empty_result = try update_changelog_for_release(
+        std.testing.allocator,
+        empty,
+        "0.16.79-shopify1",
+        "2026-04-22",
+    );
+    defer std.testing.allocator.free(empty_result);
+
+    try std.testing.expectEqualStrings(
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle 0.16.79-shopify1
+        \\
+        \\Released: 2026-04-22
+        \\
+        \\## TigerBeetle 0.16.78-shopify3
+        \\
+        \\Released: 2026-04-15
+    , empty_result);
 }
