@@ -17,6 +17,15 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Tooling
 
+- [#141](https://github.com/shop/tigerbeetle/pull/141)
+
+  Add `SHOPIFY_DEBUG_RELEASE=N` support to the `tigerbeetle-publish-package`
+  pipeline. Manual release-branch builds with the variable set now publish a
+  `<version>~debugN` `.deb` containing the x86_64 Linux Debug-mode server
+  binary, while keeping the binary's release stamp at the base fork version so
+  it can be used for diagnostic repros without changing cluster version
+  semantics.
+
 - [#125](https://github.com/shop/tigerbeetle/pull/125)
 
   Swap in a custom `.mode = .simple` test runner (`src/shopify/test_runner.zig`)

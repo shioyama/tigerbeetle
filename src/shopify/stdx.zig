@@ -25,9 +25,21 @@ pub fn read_yes(allocator: std.mem.Allocator, reader: anytype) !bool {
 /// not a prerelease). Errors when the env var is set but isn't a non-negative
 /// integer. Callers append `~rc{N}` to the changelog-derived version.
 pub fn prerelease_rc_n(env_value: ?[]const u8) !?u16 {
+    return numbered_release_suffix(env_value, error.InvalidPrerelease);
+}
+
+/// Parses the `SHOPIFY_DEBUG_RELEASE` env var value as the debug build number.
+/// Returns `null` when the env var is unset or empty. Errors when the env var
+/// is set but isn't a non-negative integer. Callers append `~debug{N}` to the
+/// changelog-derived version.
+pub fn debug_release_n(env_value: ?[]const u8) !?u16 {
+    return numbered_release_suffix(env_value, error.InvalidDebugRelease);
+}
+
+fn numbered_release_suffix(env_value: ?[]const u8, parse_error: anyerror) !?u16 {
     const raw = env_value orelse return null;
     if (raw.len == 0) return null;
-    return std.fmt.parseUnsigned(u16, raw, 10) catch error.InvalidPrerelease;
+    return std.fmt.parseUnsigned(u16, raw, 10) catch parse_error;
 }
 
 pub const ForkReleaseTag = struct { base: []const u8, n: u16 };
