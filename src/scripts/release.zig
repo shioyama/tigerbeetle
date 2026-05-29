@@ -54,6 +54,8 @@ pub const CLIArgs = struct {
     shopify: bool = false,
 };
 
+const ShopifyBuildKind = enum { release, debug };
+
 const VersionInfo = struct {
     // release_triple is a comptime parameter of the VSR used for the upgrade protocol.
     release_triple: []const u8,
@@ -79,11 +81,20 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     // [shopify] Validate and pin the fork version from SHOPIFY-CHANGELOG.md.
     // SHOPIFY_PRERELEASE=N builds `<base>~rc{N}` and (like VALIDATE_RELEASE_BUILD)
     // rewrites the changelog's `(unreleased)` header in place before validation.
+    // SHOPIFY_DEBUG_RELEASE=N builds `<base>~debug{N}` with Debug-mode binaries.
+    const shopify_debug_n = try shopify_stdx.debug_release_n(
+        shell.env_get_option("SHOPIFY_DEBUG_RELEASE"),
+    );
+    const shopify_build_kind: ShopifyBuildKind = if (shopify_debug_n == null) .release else .debug;
     const shopify_version: ?[]const u8 = if (shopify_release_mode) blk: {
         const prerelease_n = try shopify_stdx.prerelease_rc_n(
             shell.env_get_option("SHOPIFY_PRERELEASE"),
         );
+        if (prerelease_n != null and shopify_debug_n != null) {
+            @panic("SHOPIFY_PRERELEASE and SHOPIFY_DEBUG_RELEASE are mutually exclusive");
+        }
         if (prerelease_n != null or
+            shopify_debug_n != null or
             shopify_stdx.truthy(shell.env_get_option("VALIDATE_RELEASE_BUILD")))
         {
             try shopify_release.prepare_validation_release(shell);
@@ -95,6 +106,15 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
             std.log.warn(
                 "building prerelease {s}; version matches the eventual {s}" ++
                     " — do not mix in the same cluster",
+                .{ v, base },
+            );
+            break :blk v;
+        }
+        if (shopify_debug_n) |n| {
+            const v = try shell.fmt("{s}~debug{}", .{ base, n });
+            std.log.warn(
+                "building debug release {s}; version matches {s}" ++
+                    " — use only for diagnostics",
                 .{ v, base },
             );
             break :blk v;
@@ -224,7 +244,14 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     if (cli_args.build) {
         // [shopify] Pass `cli_args.shopify` so `build` can take the fork's
         // x86_64-linux-only path and skip vortex, which the fork doesn't ship.
-        try build(shell, languages, version_info, cli_args.devhub, cli_args.shopify);
+        try build(
+            shell,
+            languages,
+            version_info,
+            cli_args.devhub,
+            cli_args.shopify,
+            shopify_build_kind,
+        );
 
         // [shopify] Assemble fork artifacts (.deb) from the dist tree.
         if (shopify_release_mode) {
@@ -245,6 +272,7 @@ fn build(
     info: VersionInfo,
     devhub: bool,
     shopify: bool, // [shopify]
+    shopify_build_kind: ShopifyBuildKind, // [shopify]
 ) !void {
     var section = try shell.open_section("build all");
     defer section.close();
@@ -264,8 +292,23 @@ fn build(
         if (devhub) {
             try build_tigerbeetle_target(shell, info, dist_dir_tigerbeetle, false, "x86_64-linux");
         } else if (shopify) {
-            // [shopify] Fork releases only ship the x86_64-linux release binary.
-            try build_tigerbeetle_target(shell, info, dist_dir_tigerbeetle, false, "x86_64-linux");
+            // [shopify] Fork releases only ship x86_64-linux.
+            switch (shopify_build_kind) {
+                .release => try build_tigerbeetle_target(
+                    shell,
+                    info,
+                    dist_dir_tigerbeetle,
+                    false,
+                    "x86_64-linux",
+                ),
+                .debug => try build_tigerbeetle_target(
+                    shell,
+                    info,
+                    dist_dir_tigerbeetle,
+                    true,
+                    "x86_64-linux",
+                ),
+            }
         } else {
             try build_tigerbeetle(shell, info, dist_dir_tigerbeetle);
         }

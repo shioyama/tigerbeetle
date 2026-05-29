@@ -202,8 +202,16 @@ fn compose_release_pr_body(
             "and adjust `SHOPIFY_PRERELEASE` to the next RC number (start at `1`, " ++
             "increment to come after any prior RC already published). The build " ++
             "publishes `{s}~rcN.deb` to Cloudsmith.\n\n" ++
+            "## Debug builds\n\n" ++
+            "To publish a debug-symbol build from this branch, " ++
+            "[open the `tigerbeetle-publish-package` build form]" ++
+            "(https://buildkite.com/shopify/tigerbeetle-publish-package/builds" ++
+            "?branch=release%2F{s}&env=SHOPIFY_DEBUG_RELEASE=1&message=Debug+build+for+{s}#new) " ++
+            "and adjust `SHOPIFY_DEBUG_RELEASE` to the next debug build number " ++
+            "(start at `1`, increment to come after any prior debug build already " ++
+            "published). The build publishes `{s}~debugN.deb` to Cloudsmith.\n\n" ++
             "---\n\n{s}",
-        .{ version, version, version, changelog_body },
+        .{ version, version, version, version, version, version, changelog_body },
     );
 
     return if (upstream_changelog_body) |body|
@@ -245,8 +253,14 @@ pub fn build_artifacts(
     var section = try shell.open_section("build shopify artifacts");
     defer section.close();
 
+    const debug_build = std.mem.indexOf(u8, shopify_version, "~debug") != null;
+    const tigerbeetle_zip = if (debug_build)
+        "zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux-debug.zip"
+    else
+        "zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip";
+
     // Preconditions: upstream builds must have produced these.
-    try shell.project_root.access("zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip", .{});
+    try shell.project_root.access(tigerbeetle_zip, .{});
     try shell.project_root.access("zig-out/dist/go", .{});
 
     try shell.project_root.makePath("zig-out/shopify-dist");
@@ -284,7 +298,7 @@ pub fn build_artifacts(
 
     {
         const zip_file = try shell.project_root.openFile(
-            "zig-out/dist/tigerbeetle/tigerbeetle-x86_64-linux.zip",
+            tigerbeetle_zip,
             .{},
         );
         defer zip_file.close();
@@ -332,9 +346,10 @@ pub fn build_artifacts(
         .dest = go_client_dir,
     });
 
-    // Prerelease builds tag the .deb with `~rc{N}` but leave the binary stamp
-    // at the changelog's base version, so strip the suffix before checking.
-    const stamped_version = if (std.mem.indexOf(u8, shopify_version, "~rc")) |idx|
+    // Prerelease/debug builds tag the .deb with `~rc{N}`/`~debug{N}` but leave
+    // the binary stamp at the changelog's base version, so strip the suffix
+    // before checking.
+    const stamped_version = if (std.mem.indexOfScalar(u8, shopify_version, '~')) |idx|
         shopify_version[0..idx]
     else
         shopify_version;
