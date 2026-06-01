@@ -373,8 +373,6 @@ test "in-place upgrade" {
     if (builtin.target.os.tag != .linux) {
         return error.SkipZigTest;
     }
-    // [shopify] TODO: Hangs in Shopify CI on Linux, needs investigation.
-    if (builtin.target.os.tag == .linux) return error.SkipZigTest;
 
     const level = std.testing.log_level;
     std.testing.log_level = std.log.Level.info;
@@ -443,8 +441,6 @@ test "recover smoke" {
     if (builtin.os.tag != .linux) {
         return error.SkipZigTest;
     }
-    // [shopify] TODO: Hangs in Shopify CI on Linux, needs investigation.
-    if (builtin.os.tag == .linux) return error.SkipZigTest;
 
     const level = std.testing.log_level;
     std.testing.log_level = std.log.Level.info;
