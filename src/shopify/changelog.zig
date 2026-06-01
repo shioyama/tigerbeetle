@@ -374,6 +374,19 @@ test "shopify changelog release validation" {
 
     try check_shopify_changelog(valid, "0.16.78-shopify3");
 
+    const valid_date_only =
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle 0.16.79-shopify1
+        \\
+        \\Released: 2026-04-22
+        \\
+        \\## TigerBeetle 0.16.78-shopify3
+        \\
+        \\Released: 2026-04-15
+    ;
+    try check_shopify_changelog(valid_date_only, "0.16.79-shopify1");
+
     try std.testing.expectError(
         error.VersionExceedsRelease,
         check_shopify_changelog(valid, "0.16.78-shopify2"),
@@ -473,6 +486,13 @@ test "shopify changelog structural validation" {
         \\  Second paragraph.
     ;
     try check_shopify_entries(valid_multiline);
+
+    const valid_date_only =
+        \\## TigerBeetle 0.16.79-shopify1
+        \\
+        \\Released: 2026-04-22
+    ;
+    try check_shopify_entries(valid_date_only);
 
     const without_link =
         \\## TigerBeetle (unreleased)

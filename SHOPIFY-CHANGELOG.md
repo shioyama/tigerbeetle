@@ -63,6 +63,14 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   text that `upstream-merge` pre-fills, separated from fork notes by a
   horizontal rule, and are omitted from later same-base fork releases.
 
+- [#139](https://github.com/shop/tigerbeetle/pull/139)
+
+  Handle upstream-only fork releases when `SHOPIFY-CHANGELOG.md` has no
+  `(unreleased)` section. `shopify-release` now creates a date-only entry for
+  the first `-shopify1` on a new upstream base, exits cleanly when the base
+  already has a fork release, and validates the generated changelog before
+  pushing.
+
 ## TigerBeetle 0.17.1-shopify2
 
 Released: 2026-05-21
