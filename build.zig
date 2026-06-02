@@ -618,6 +618,9 @@ fn build_ci_step_integration(
     system_command.setName("test:integration");
     system_command.setEnvironmentVariable("VERBOSE", "1");
     system_command.setEnvironmentVariable("COLOR", "1");
+    // [shopify] Raw integration stderr is filtered after the nested build
+    // completes, so allow for expected pre-filter Vortex/replica log volume.
+    system_command.max_stdio_size = 512 * 1024 * 1024;
     hide_integration_stderr(system_command);
     step_ci.dependOn(&system_command.step);
 }

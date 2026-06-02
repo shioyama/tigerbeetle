@@ -17,7 +17,8 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Tooling
 
-- [#145](https://github.com/shop/tigerbeetle/pull/145)
+- [#145](https://github.com/shop/tigerbeetle/pull/145),
+  [#146](https://github.com/shop/tigerbeetle/pull/146)
 
   Route the Buildkite integration-test step through a dedicated
   `zig build ci -- integration` mode. The wrapper keeps verbose custom test
