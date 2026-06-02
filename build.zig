@@ -491,6 +491,7 @@ fn build_ci(
     const CIMode = enum {
         smoke, // Quickly check formatting and such.
         @"test", // Main test suite + VOPR + fuzzers, excluding clients.
+        integration, // [shopify] Dedicated integration tests, with stderr hidden on success.
         aof, // Dedicated test for AOF, which is somewhat slow to run.
 
         clients, // Tests for all language clients below.
@@ -549,6 +550,11 @@ fn build_ci(
             });
         }
     }
+    // [shopify] Buildkite splits integration tests into their own step; keep
+    // verbose test-runner progress while hiding expected Vortex/replica noise.
+    if (mode == .integration) {
+        build_ci_step_integration(b, step_ci);
+    }
     if (default or mode == .amqp) {
         // Smoke test the AMQP integration.
         build_ci_script(b, step_ci, options.scripts, &.{
@@ -604,6 +610,18 @@ fn build_ci_step(
     step_ci.dependOn(&system_command.step);
 }
 
+fn build_ci_step_integration(
+    b: *std.Build,
+    step_ci: *std.Build.Step,
+) void {
+    const system_command = b.addSystemCommand(&.{ b.graph.zig_exe, "build", "test:integration" });
+    system_command.setName("test:integration");
+    system_command.setEnvironmentVariable("VERBOSE", "1");
+    system_command.setEnvironmentVariable("COLOR", "1");
+    hide_integration_stderr(system_command);
+    step_ci.dependOn(&system_command.step);
+}
+
 fn build_ci_script(
     b: *std.Build,
     step_ci: *std.Build.Step,
@@ -639,6 +657,67 @@ fn hide_stderr(run: *std.Build.Step.Run) void {
     const original = run.step.makeFn;
     override.global_map.put(b.allocator, @intFromPtr(&run.step), original) catch @panic("OOM");
     run.step.makeFn = &override.make;
+}
+
+// [shopify] Keep the custom test runner's verbose progress while hiding expected
+// noisy stderr from Vortex and child TigerBeetle processes. If the command
+// fails, leave stderr untouched so the failure has full context.
+fn hide_integration_stderr(run: *std.Build.Step.Run) void {
+    const b = run.step.owner;
+
+    run.addCheck(.{ .expect_term = .{ .Exited = 0 } });
+    run.has_side_effects = true;
+
+    const override = struct {
+        var global_map: std.AutoHashMapUnmanaged(usize, std.Build.Step.MakeFn) = .{};
+
+        fn make(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anyerror!void {
+            const original = global_map.get(@intFromPtr(step)).?;
+            try original(step, options);
+            assert(step.result_error_msgs.items.len == 0);
+            step.result_stderr = shopify_filter_integration_stderr(
+                step.owner,
+                step.result_stderr,
+            );
+        }
+    };
+
+    const original = run.step.makeFn;
+    override.global_map.put(b.allocator, @intFromPtr(&run.step), original) catch @panic("OOM");
+    run.step.makeFn = &override.make;
+}
+
+fn shopify_filter_integration_stderr(b: *std.Build, stderr: []const u8) []const u8 {
+    var filtered = std.ArrayList(u8).init(b.allocator);
+    var lines = std.mem.splitScalar(u8, stderr, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+        if (shopify_integration_stderr_noise(line)) continue;
+        filtered.appendSlice(line) catch @panic("OOM");
+        filtered.append('\n') catch @panic("OOM");
+    }
+    return filtered.toOwnedSlice() catch @panic("OOM");
+}
+
+fn shopify_integration_stderr_noise(line: []const u8) bool {
+    if (std.mem.indexOf(u8, line, "[supervisor]") != null) return true;
+    if (std.mem.indexOf(u8, line, "[faulty_network]") != null) return true;
+    if (std.mem.indexOf(u8, line, "error.ConnectionRefused") != null) return true;
+    if (std.mem.indexOf(u8, line, "error.ConnectionResetByPeer") != null) return true;
+
+    inline for (.{
+        "debug(",
+        "info(",
+        "warning(",
+        "warn(",
+        "err(",
+        "error(",
+    }) |marker| {
+        if (std.mem.startsWith(u8, line, marker)) return true;
+        if (std.mem.indexOf(u8, line, "Z " ++ marker) != null) return true;
+    }
+
+    return false;
 }
 
 // Run a tigerbeetle build without running codegen and waiting for llvm

@@ -106,7 +106,7 @@ steps:
         upload: false
     run:
       - sh .shopify-build/fetch-upstream-tags.sh
-      - ./.zig-install/zig build test:integration
+      - ./.zig-install/zig build ci -- integration
   - label: ':bug: Fuzz'
     timeout: 10m
     git:
