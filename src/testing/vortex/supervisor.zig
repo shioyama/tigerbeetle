@@ -493,7 +493,7 @@ pub const Supervisor = struct {
 
         const release_index = supervisor.replicas[replica_index].executable_index;
         const server_executable = supervisor.server_executables[release_index];
-        const child = supervisor.shell.spawn(.{ .stderr_behavior = .Inherit },
+        var child = supervisor.shell.spawn(.{ .stderr_behavior = .Inherit },
             \\{tigerbeetle} recover
             \\    --cluster={cluster_id}
             \\    --replica={replica}
@@ -512,9 +512,16 @@ pub const Supervisor = struct {
             return err;
         };
 
+        var child_running = true;
+        defer if (child_running) {
+            _ = child.kill() catch {
+                _ = child.wait() catch {};
+            };
+        };
+
         // Tick supervisor since reformatting requires network progress.
         // (The tick limit is an arbitrary safety counter.)
-        const ticks_max = 1500;
+        const ticks_max = 4000; // [shopify] Buildkite workers can complete recover slowly.
         for (0..ticks_max) |_| {
             const result = std.posix.waitpid(child.id, std.posix.W.NOHANG);
             if (result.pid == 0) {
@@ -523,6 +530,7 @@ pub const Supervisor = struct {
                 assert(result.pid == child.id);
 
                 const status = stdx.term_from_status(result.status);
+                child_running = false;
                 if (std.meta.eql(status, .{ .Exited = 0 })) {
                     break;
                 } else {
