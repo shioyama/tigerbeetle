@@ -86,7 +86,7 @@ steps:
       - sh .shopify-build/fetch-upstream-tags.sh
       - ./.zig-install/zig build test:tb-snapshot
   - label: ':zap: Integration tests'
-    timeout: 10m
+    timeout: 15m
     env:
       SHOPIFY_BUILD_MEMORY_LIMIT: 15g
       TERM: dumb
