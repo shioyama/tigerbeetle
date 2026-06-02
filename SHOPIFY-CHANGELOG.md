@@ -23,6 +23,9 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   `zig build ci -- integration` mode. The wrapper keeps verbose custom test
   runner progress visible while filtering expected Vortex and TigerBeetle child
   process stderr noise on successful runs; failures retain full stderr context.
+  The integration upgrade/recover harness also gets a longer post-disruption
+  drain/recover window so slower Buildkite workers do not fail while the
+  cluster is still making progress.
 
 - [#141](https://github.com/shop/tigerbeetle/pull/141)
 
