@@ -1034,7 +1034,6 @@ fn build_test(
     shopify_tb_snapshot.build_tb_snapshot_test(b, .{
         .@"test" = steps.@"test",
         .test_tb_snapshot = steps.test_tb_snapshot,
-        .test_unit_build = steps.test_unit_build,
     }, .{
         .stdx_module = options.stdx_module,
         .vsr_module_test = options.vsr_module_test,

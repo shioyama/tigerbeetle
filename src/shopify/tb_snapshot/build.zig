@@ -37,7 +37,6 @@ pub fn build_tb_snapshot_test(
     steps: struct {
         @"test": *std.Build.Step,
         test_tb_snapshot: *std.Build.Step,
-        test_unit_build: *std.Build.Step,
     },
     options: struct {
         stdx_module: *std.Build.Module,
@@ -66,8 +65,6 @@ pub fn build_tb_snapshot_test(
     tests.root_module.addImport("stdx", options.stdx_module);
     tests.root_module.addImport("vsr", options.vsr_module_test);
     tests.root_module.addOptions("vsr_options", options.vsr_options_test);
-
-    steps.test_unit_build.dependOn(&b.addInstallArtifact(tests, .{}).step);
 
     const run = b.addRunArtifact(tests);
     if (b.args != null) run.has_side_effects = true;
