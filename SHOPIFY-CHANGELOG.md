@@ -3,6 +3,18 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Tooling
+
+- [#147](https://github.com/shop/tigerbeetle/pull/147)
+
+  Keep the split Buildkite unit-test step compatible with `tidy shopify fork` by
+  running `zig build check` before `test:unit`, which populates the server
+  closure manifest the versioning guard reads from `.zig-cache/h`. Stop wiring
+  the tb-snapshot test artifact into `test:unit:build`; those tests still run
+  through `test:tb-snapshot`.
+
 ## TigerBeetle 0.17.2-shopify1
 
 Released: 2026-06-01
