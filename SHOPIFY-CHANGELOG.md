@@ -19,6 +19,14 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   when upgrading to a binary that doesn't understand it (e.g. upstream, which
   asserts `flags == 0`).
 
+- [#151](https://github.com/shop/tigerbeetle/pull/151)
+
+  Reject duplicate replica addresses during address parsing. Tighten Shopify
+  shadow topology validation by requiring shadow listen addresses to match the
+  datafile replica count and to not overlap the source cluster addresses. Add
+  explicit `--shadower-count` bounds checks so invalid standby-slot topology is
+  rejected during CLI parsing.
+
 ### Tooling
 
 - [#154](https://github.com/shop/tigerbeetle/pull/154)

@@ -65,20 +65,40 @@ fn decide(
                 .{ slot_count, sb.replica_count },
             );
         }
-        if (sb.member_index >= own_addresses.len) {
+        if (own_addresses.len != sb.replica_count) {
             vsr.fatal(
                 .cli,
-                "--shadow: --addresses count ({}) is too small for local " ++
-                    "datafile member index ({})",
-                .{ own_addresses.len, sb.member_index },
+                "--shadow: --addresses count ({}) must equal local datafile " ++
+                    "replica_count ({})",
+                .{ own_addresses.len, sb.replica_count },
             );
+        }
+        if (sb.member_index >= sb.replica_count) {
+            vsr.fatal(
+                .cli,
+                "--shadow: local datafile member index ({}) must be less than " ++
+                    "replica_count ({})",
+                .{ sb.member_index, sb.replica_count },
+            );
+        }
+        const own_index = sb.member_index;
+        for (own_addresses, 0..) |own, own_index_check| {
+            for (shadow, 0..) |shadow_address, shadow_index| {
+                if (std.net.Address.eql(own, shadow_address)) {
+                    vsr.fatal(
+                        .cli,
+                        "--shadow: --addresses[{}] overlaps --shadow[{}]",
+                        .{ own_index_check, shadow_index },
+                    );
+                }
+            }
         }
         return .{
             .is_shadower = true,
             .addresses = shadow,
             .node_count = @intCast(shadow.len + slot_count),
             .shadower_count = slot_count,
-            .listen_address = own_addresses[sb.member_index],
+            .listen_address = own_addresses[own_index],
         };
     }
     return .{
@@ -167,6 +187,20 @@ test "shadow decide: --shadow" {
     try std.testing.expectEqual(@as(u8, 1), out.shadower_count);
     try std.testing.expect(out.listen_address != null);
     try std.testing.expectEqual(shadow[0].in.sa.port, out.addresses[0].in.sa.port);
+}
+
+test "shadow decide: active datafile maps to replica ordinal" {
+    const own = try parse_addresses_test(2, "127.0.0.1:7000,127.0.0.1:7001");
+    const shadow = try parse_addresses_test(2, "127.0.0.1:8000,127.0.0.1:8001");
+    const out = decide(&own, &shadow, 0, .{
+        .member_index = 1,
+        .replica_count = 2,
+    });
+    try std.testing.expectEqual(true, out.is_shadower);
+    try std.testing.expectEqual(@as(u8, 4), out.node_count);
+    try std.testing.expectEqual(@as(u8, 2), out.shadower_count);
+    try std.testing.expect(out.listen_address != null);
+    try std.testing.expectEqual(own[1].in.sa.port, out.listen_address.?.in.sa.port);
 }
 
 test "shadow decide: no --shadow ignores superblock" {
