@@ -64,6 +64,10 @@ steps:
         upload: false
     run:
       - sh .shopify-build/fetch-upstream-tags.sh
+      # `tidy shopify fork` needs the server `@import` closure from Zig's
+      # local cache. Buildkite jobs start with an empty `.zig-cache`, and
+      # `test:unit` does not compile `src/tigerbeetle/main.zig` itself.
+      - ./.zig-install/zig build check
       - ./.zig-install/zig build test:unit test:fmt
   - label: ':camera_with_flash: tb-snapshot tests'
     timeout: 10m
