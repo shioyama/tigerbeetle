@@ -1535,6 +1535,8 @@ test "Cluster: upgrade: R=1 omits view_headers when WAL skip is disabled" {
 
 test "Cluster: upgrade: R=1" {
     // R=1 clusters upgrade even though they don't build a quorum of upgrade targets.
+    const mark = marks.check("startup recovery: WAL skip uses checkpoint view_headers");
+
     const t = try TestContext.init(.{ .replica_count = 1 });
     defer t.deinit();
 
@@ -1546,6 +1548,7 @@ test "Cluster: upgrade: R=1" {
     try expectEqual(t.replica(.R0).release(), 20);
     try expectEqual(t.replica(.R0).op_checkpoint(), checkpoint_1);
     try expectEqual(t.replica(.R0).commit(), checkpoint_1_trigger);
+    try mark.expect_hit();
 }
 
 test "Cluster: upgrade: shadower shutdown after upgrade checkpoint" {

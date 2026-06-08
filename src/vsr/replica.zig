@@ -961,9 +961,14 @@ pub fn ReplicaType(
                 // The journal has only reserved headers so find_latest_headers_break_between
                 // would report a full-journal break and fail primary_update_view_headers.
                 // The superblock view_headers are correct and sufficient for view_durable_update.
-                const wal_skip = self.superblock.working.flags &
-                    vsr.superblock.SuperBlockHeader.flag_wal_skip_next_recovery != 0;
-                if (!wal_skip) self.primary_update_view_headers();
+                if (skip_wal) {
+                    log.mark.info(
+                        "{}: startup recovery: WAL skip uses checkpoint view_headers",
+                        .{self.log_prefix()},
+                    );
+                } else {
+                    self.primary_update_view_headers();
+                }
                 self.view_durable_update();
 
                 if (self.commit_min == self.op) {
