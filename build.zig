@@ -98,6 +98,7 @@ pub fn build(b: *std.Build) !void {
         .test_integration_build = b.step("test:integration:build", "Build integration tests"),
         .test_unit = b.step("test:unit", "Run unit tests"),
         .test_unit_build = b.step("test:unit:build", "Build unit tests"),
+        .tb_snapshot = b.step("tb-snapshot", "Build the tb-snapshot tool"), // [shopify]
         .test_tb_snapshot = b.step("test:tb-snapshot", "Run tb-snapshot tests"), // [shopify]
         .tb_datafile = b.step("tb-datafile", "Build the tb-datafile tool"), // [shopify]
         .test_tb_datafile = b.step("test:tb-datafile", "Run tb-datafile tests"), // [shopify]
@@ -262,7 +263,7 @@ pub fn build(b: *std.Build) !void {
     // [shopify]
     shopify_tb_snapshot.build_tb_snapshot(
         b,
-        b.step("tb-snapshot", "Build the tb-snapshot tool"),
+        build_steps.tb_snapshot,
         .{
             .stdx_module = stdx_module,
             .vsr_module = vsr_module,
@@ -310,6 +311,7 @@ pub fn build(b: *std.Build) !void {
     try build_test(b, .{
         .test_unit = build_steps.test_unit,
         .test_unit_build = build_steps.test_unit_build,
+        .tb_snapshot = build_steps.tb_snapshot, // [shopify]
         .test_tb_snapshot = build_steps.test_tb_snapshot, // [shopify]
         .tb_datafile = build_steps.tb_datafile, // [shopify]
         .test_tb_datafile = build_steps.test_tb_datafile, // [shopify]
@@ -972,6 +974,7 @@ fn build_test(
     steps: struct {
         test_unit: *std.Build.Step,
         test_unit_build: *std.Build.Step,
+        tb_snapshot: *std.Build.Step, // [shopify]
         test_tb_snapshot: *std.Build.Step, // [shopify]
         tb_datafile: *std.Build.Step, // [shopify]
         test_tb_datafile: *std.Build.Step, // [shopify]
@@ -1053,6 +1056,7 @@ fn build_test(
     // [shopify]
     shopify_tb_snapshot.build_tb_snapshot_test(b, .{
         .@"test" = steps.@"test",
+        .tb_snapshot = steps.tb_snapshot,
         .test_tb_snapshot = steps.test_tb_snapshot,
     }, .{
         .stdx_module = options.stdx_module,

@@ -12,7 +12,8 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   Add `tb-datafile`, a Shopify helper binary for inspecting and validating a
   datafile's superblock identity. The tool reports cluster, replica,
   replica-count, checkpoint, release, and flags fields, and can fail closed when
-  expected values do not match.
+  expected values do not match. Wire `test:tb-snapshot` to build the
+  `tb-snapshot` binary before running its tests, matching `test:tb-datafile`.
 
 - [#147](https://github.com/shop/tigerbeetle/pull/147)
 
