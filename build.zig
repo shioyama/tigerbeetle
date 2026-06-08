@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 
 // [shopify] Fork-only helpers. Small, fork-isolated; safe to import from build.zig.
 const shopify_tb_snapshot = @import("src/shopify/tb_snapshot/build.zig");
+const shopify_tb_datafile = @import("src/shopify/tb_datafile/build.zig");
 const shopify_build_modules = @import("src/shopify/build_modules.zig");
 const shopify_stdx = @import("src/shopify/stdx.zig");
 
@@ -97,7 +98,10 @@ pub fn build(b: *std.Build) !void {
         .test_integration_build = b.step("test:integration:build", "Build integration tests"),
         .test_unit = b.step("test:unit", "Run unit tests"),
         .test_unit_build = b.step("test:unit:build", "Build unit tests"),
+        .tb_snapshot = b.step("tb-snapshot", "Build the tb-snapshot tool"), // [shopify]
         .test_tb_snapshot = b.step("test:tb-snapshot", "Run tb-snapshot tests"), // [shopify]
+        .tb_datafile = b.step("tb-datafile", "Build the tb-datafile tool"), // [shopify]
+        .test_tb_datafile = b.step("test:tb-datafile", "Run tb-datafile tests"), // [shopify]
         .test_jni = b.step("test:jni", "Run Java JNI tests"),
         .vopr = b.step("vopr", "Run the VOPR"),
         .vopr_build = b.step("vopr:build", "Build the VOPR"),
@@ -259,7 +263,20 @@ pub fn build(b: *std.Build) !void {
     // [shopify]
     shopify_tb_snapshot.build_tb_snapshot(
         b,
-        b.step("tb-snapshot", "Build the tb-snapshot tool"),
+        build_steps.tb_snapshot,
+        .{
+            .stdx_module = stdx_module,
+            .vsr_module = vsr_module,
+            .vsr_options = vsr_options,
+            .target = target,
+            .mode = mode,
+        },
+    );
+
+    // [shopify]
+    shopify_tb_datafile.build_tb_datafile(
+        b,
+        build_steps.tb_datafile,
         .{
             .stdx_module = stdx_module,
             .vsr_module = vsr_module,
@@ -294,7 +311,10 @@ pub fn build(b: *std.Build) !void {
     try build_test(b, .{
         .test_unit = build_steps.test_unit,
         .test_unit_build = build_steps.test_unit_build,
+        .tb_snapshot = build_steps.tb_snapshot, // [shopify]
         .test_tb_snapshot = build_steps.test_tb_snapshot, // [shopify]
+        .tb_datafile = build_steps.tb_datafile, // [shopify]
+        .test_tb_datafile = build_steps.test_tb_datafile, // [shopify]
         .test_integration = build_steps.test_integration,
         .test_integration_build = build_steps.test_integration_build,
         .test_fmt = build_steps.test_fmt,
@@ -954,7 +974,10 @@ fn build_test(
     steps: struct {
         test_unit: *std.Build.Step,
         test_unit_build: *std.Build.Step,
+        tb_snapshot: *std.Build.Step, // [shopify]
         test_tb_snapshot: *std.Build.Step, // [shopify]
+        tb_datafile: *std.Build.Step, // [shopify]
+        test_tb_datafile: *std.Build.Step, // [shopify]
         test_integration: *std.Build.Step,
         test_integration_build: *std.Build.Step,
         test_fmt: *std.Build.Step,
@@ -1033,7 +1056,20 @@ fn build_test(
     // [shopify]
     shopify_tb_snapshot.build_tb_snapshot_test(b, .{
         .@"test" = steps.@"test",
+        .tb_snapshot = steps.tb_snapshot,
         .test_tb_snapshot = steps.test_tb_snapshot,
+    }, .{
+        .stdx_module = options.stdx_module,
+        .vsr_module_test = options.vsr_module_test,
+        .vsr_options_test = options.vsr_options_test,
+        .target = options.target,
+        .mode = options.mode,
+    });
+
+    shopify_tb_datafile.build_tb_datafile_test(b, .{
+        .@"test" = steps.@"test",
+        .tb_datafile = steps.tb_datafile,
+        .test_tb_datafile = steps.test_tb_datafile,
     }, .{
         .stdx_module = options.stdx_module,
         .vsr_module_test = options.vsr_module_test,

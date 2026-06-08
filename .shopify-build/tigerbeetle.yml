@@ -68,7 +68,7 @@ steps:
       # local cache. Buildkite jobs start with an empty `.zig-cache`, and
       # `test:unit` does not compile `src/tigerbeetle/main.zig` itself.
       - ./.zig-install/zig build check
-      - ./.zig-install/zig build test:unit test:fmt
+      - ./.zig-install/zig build test:unit test:fmt test:tb-datafile
   - label: ':camera_with_flash: tb-snapshot tests'
     timeout: 10m
     env:

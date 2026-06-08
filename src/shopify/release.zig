@@ -324,21 +324,20 @@ pub fn build_artifacts(
     }
 
     // Upstream's tigerbeetle-x86_64-linux.zip only contains the tigerbeetle
-    // binary, so stage tb-snapshot alongside it in usr/bin/. The preceding
-    // `build_tigerbeetle_target` run already produced zig-out/bin/tb-snapshot
-    // stamped with the correct release triples via the default install step
-    // (see src/shopify/tb_snapshot/build.zig).
-    try Shell.copy_path(
-        shell.project_root,
-        "zig-out/bin/tb-snapshot",
-        bin_dir,
-        "tb-snapshot",
-    );
-    {
-        const tb_snapshot_bin = try bin_dir.openFile("tb-snapshot", .{});
-        defer tb_snapshot_bin.close();
+    // binary, so stage Shopify helper binaries alongside it in usr/bin/. The
+    // preceding `build_tigerbeetle_target` run already produced them stamped
+    // with the correct release triples via the default install step.
+    inline for (.{ "tb-snapshot", "tb-datafile" }) |helper| {
+        try Shell.copy_path(
+            shell.project_root,
+            try shell.fmt("zig-out/bin/{s}", .{helper}),
+            bin_dir,
+            helper,
+        );
+        const helper_bin = try bin_dir.openFile(helper, .{});
+        defer helper_bin.close();
 
-        try tb_snapshot_bin.chmod(0o755);
+        try helper_bin.chmod(0o755);
     }
 
     // Slim go-client: x86_64-linux native lib only, plus the Go source files
@@ -383,6 +382,7 @@ pub fn build_artifacts(
         ),
         try shell.fmt("{s}/usr/bin/tigerbeetle", .{pkg_dir}),
         try shell.fmt("{s}/usr/bin/tb-snapshot", .{pkg_dir}),
+        try shell.fmt("{s}/usr/bin/tb-datafile", .{pkg_dir}),
         try shell.fmt(
             "{s}/usr/share/tigerbeetle/go-client/native/libtb_client_x86_64-linux.a",
             .{pkg_dir},
@@ -398,7 +398,7 @@ pub fn build_artifacts(
     }
 }
 
-/// Asserts both staged binaries report `TigerBeetle version <shopify_version>...`
+/// Asserts staged binaries report `TigerBeetle version <shopify_version>...`
 /// and match each other byte-for-byte.
 fn assert_release_version(
     shell: *Shell,
@@ -406,13 +406,8 @@ fn assert_release_version(
     shopify_version: []const u8,
 ) !void {
     const tigerbeetle_bin = try shell.fmt("{s}/usr/bin/tigerbeetle", .{pkg_dir});
-    const tb_snapshot_bin = try shell.fmt("{s}/usr/bin/tb-snapshot", .{pkg_dir});
-
     const tigerbeetle_version = try shell.exec_stdout("{bin} version", .{
         .bin = tigerbeetle_bin,
-    });
-    const tb_snapshot_version = try shell.exec_stdout("{bin} --version", .{
-        .bin = tb_snapshot_bin,
     });
 
     const expected_prefix = try shell.fmt(
@@ -427,19 +422,27 @@ fn assert_release_version(
             .{ expected_prefix, tigerbeetle_version },
         );
     }
-    if (!std.mem.startsWith(u8, tb_snapshot_version, expected_prefix)) {
-        std.debug.panic(
-            "tb-snapshot binary stamped with the wrong release: " ++
-                "expected prefix '{s}', got '{s}'",
-            .{ expected_prefix, tb_snapshot_version },
-        );
-    }
-    if (!std.mem.eql(u8, tigerbeetle_version, tb_snapshot_version)) {
-        std.debug.panic(
-            "tigerbeetle and tb-snapshot stamped with different releases: " ++
-                "tigerbeetle='{s}', tb-snapshot='{s}'",
-            .{ tigerbeetle_version, tb_snapshot_version },
-        );
+
+    inline for (.{ "tb-snapshot", "tb-datafile" }) |helper| {
+        const helper_bin = try shell.fmt("{s}/usr/bin/{s}", .{ pkg_dir, helper });
+        const helper_version = try shell.exec_stdout("{bin} --version", .{
+            .bin = helper_bin,
+        });
+
+        if (!std.mem.startsWith(u8, helper_version, expected_prefix)) {
+            std.debug.panic(
+                "{s} binary stamped with the wrong release: " ++
+                    "expected prefix '{s}', got '{s}'",
+                .{ helper, expected_prefix, helper_version },
+            );
+        }
+        if (!std.mem.eql(u8, tigerbeetle_version, helper_version)) {
+            std.debug.panic(
+                "tigerbeetle and {s} stamped with different releases: " ++
+                    "tigerbeetle='{s}', {s}='{s}'",
+                .{ helper, tigerbeetle_version, helper, helper_version },
+            );
+        }
     }
 }
 
