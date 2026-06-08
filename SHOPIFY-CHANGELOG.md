@@ -3,6 +3,17 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Tooling
+
+- [#154](https://github.com/shop/tigerbeetle/pull/154)
+
+  Split the Buildkite integration-test lane into parallel `upgrade` and
+  `integration` CI modes. The upgrade shard runs the slow in-place upgrade test,
+  while the integration shard runs the remaining integration tests through the
+  existing stderr-filtered `zig build ci -- integration` wrapper.
+
 ## TigerBeetle 0.17.2-shopify2
 
 Released: 2026-06-08
