@@ -57,7 +57,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git switch --create "$branch"
           git add .shopify-build/fork-versions.txt
-          git commit -m "[shopify] Bump fork-versions.txt for $version"
+          git commit -m "Bump fork-versions.txt for $version"
           git push -u origin "$branch"
           gh pr create \
             --title "[shopify] Bump fork-versions.txt for $version" \
