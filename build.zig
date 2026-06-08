@@ -23,6 +23,12 @@ const VoprLog = enum { short, full };
 // NB: grep for 'TODO(client_release)' after changing!
 const release_client_min = "0.16.4";
 
+// [shopify] Buildkite integration shards.
+const ShopifyIntegrationShard = struct {
+    skip_upgrade: bool = false,
+    upgrade_only: bool = false,
+};
+
 // TigerBeetle binary requires certain CPU feature and supports a closed set of CPUs. Here, we
 // specify exactly which features the binary needs.
 fn resolve_target(b: *std.Build, target_requested: ?[]const u8) !std.Build.ResolvedTarget {
@@ -167,6 +173,17 @@ pub fn build(b: *std.Build) !void {
             "print-exe",
             "Build tasks print the path of the executable",
         ) orelse false,
+        // [shopify]
+        .shopify_integration_skip_upgrade = b.option(
+            bool,
+            "shopify-integration-skip-upgrade",
+            "Skip the slow in-place upgrade integration test.",
+        ) orelse false,
+        .shopify_integration_upgrade_only = b.option(
+            bool,
+            "shopify-integration-upgrade-only",
+            "Run only the slow in-place upgrade integration test.",
+        ) orelse false,
     };
 
     if (build_options.config_release == null and build_options.config_release_client_min != null) {
@@ -177,6 +194,11 @@ pub fn build(b: *std.Build) !void {
     }
     assert((build_options.config_release == null) ==
         (build_options.config_release_client_min == null));
+    if (build_options.shopify_integration_skip_upgrade and
+        build_options.shopify_integration_upgrade_only)
+    {
+        @panic("cannot both skip and exclusively run integration upgrade tests");
+    }
 
     const target = try resolve_target(b, build_options.target);
     const stdx_module = b.addModule("stdx", .{ .root_source_file = b.path("src/stdx/stdx.zig") });
@@ -340,6 +362,9 @@ pub fn build(b: *std.Build) !void {
         .tigerbeetle_test = tigerbeetle_test,
         .tigerbeetle_next_test = tigerbeetle_next_test,
         .vortex_options = vortex_options,
+        // [shopify]
+        .shopify_integration_skip_upgrade = build_options.shopify_integration_skip_upgrade,
+        .shopify_integration_upgrade_only = build_options.shopify_integration_upgrade_only,
     });
 
     // zig build test:jni
@@ -521,7 +546,8 @@ fn build_ci(
     const CIMode = enum {
         smoke, // Quickly check formatting and such.
         @"test", // Main test suite + VOPR + fuzzers, excluding clients.
-        integration, // [shopify] Dedicated integration tests, with stderr hidden on success.
+        integration, // [shopify] Dedicated non-upgrade integration tests.
+        upgrade, // [shopify] Slow upgrade integration test shard.
         aof, // Dedicated test for AOF, which is somewhat slow to run.
 
         clients, // Tests for all language clients below.
@@ -582,8 +608,13 @@ fn build_ci(
     }
     // [shopify] Buildkite splits integration tests into their own step; keep
     // verbose test-runner progress while hiding expected Vortex/replica noise.
-    if (mode == .integration) {
-        build_ci_step_integration(b, step_ci);
+    const integration_shard: ?ShopifyIntegrationShard = switch (mode) {
+        .integration => .{ .skip_upgrade = true },
+        .upgrade => .{ .upgrade_only = true },
+        else => null,
+    };
+    if (integration_shard) |shard| {
+        build_ci_step_integration(b, step_ci, shard);
     }
     if (default or mode == .amqp) {
         // Smoke test the AMQP integration.
@@ -644,9 +675,21 @@ fn build_ci_step(
 fn build_ci_step_integration(
     b: *std.Build,
     step_ci: *std.Build.Step,
+    shard: ShopifyIntegrationShard,
 ) void {
-    const system_command = b.addSystemCommand(&.{ b.graph.zig_exe, "build", "test:integration" });
-    system_command.setName("test:integration");
+    var argv = std.ArrayList([]const u8).init(b.allocator);
+    argv.appendSlice(&.{ b.graph.zig_exe, "build" }) catch @panic("OOM");
+    if (shard.skip_upgrade) {
+        argv.append("-Dshopify-integration-skip-upgrade=true") catch @panic("OOM");
+    }
+    if (shard.upgrade_only) {
+        argv.append("-Dshopify-integration-upgrade-only=true") catch @panic("OOM");
+    }
+    argv.append("test:integration") catch @panic("OOM");
+
+    const system_command = b.addSystemCommand(argv.items);
+    const name = std.mem.join(b.allocator, " ", argv.items[2..]) catch @panic("OOM");
+    system_command.setName(name);
     system_command.setEnvironmentVariable("VERBOSE", "1");
     system_command.setEnvironmentVariable("COLOR", "1");
     // [shopify] Raw integration stderr is filtered after the nested build
@@ -1005,6 +1048,8 @@ fn build_test(
         tigerbeetle_test: std.Build.LazyPath,
         tigerbeetle_next_test: std.Build.LazyPath,
         vortex_options: *std.Build.Step.Options,
+        shopify_integration_skip_upgrade: bool, // [shopify]
+        shopify_integration_upgrade_only: bool, // [shopify]
     },
 ) !void {
     const test_options = b.addOptions();
@@ -1116,6 +1161,8 @@ fn build_test(
         .tigerbeetle_test = options.tigerbeetle_test,
         .tigerbeetle_next_test = options.tigerbeetle_next_test,
         .vortex_options = options.vortex_options,
+        .shopify_integration_skip_upgrade = options.shopify_integration_skip_upgrade,
+        .shopify_integration_upgrade_only = options.shopify_integration_upgrade_only,
     });
 
     const run_fmt = b.addFmt(.{ .paths = &.{"."}, .check = true });
@@ -1146,6 +1193,8 @@ fn build_test_integration(
         tigerbeetle_test: std.Build.LazyPath,
         tigerbeetle_next_test: std.Build.LazyPath,
         vortex_options: *std.Build.Step.Options,
+        shopify_integration_skip_upgrade: bool, // [shopify]
+        shopify_integration_upgrade_only: bool, // [shopify]
     },
 ) void {
     const vortex = build_vortex_executable(b, .{
@@ -1165,6 +1214,18 @@ fn build_test_integration(
         options.tigerbeetle_next_test,
     );
     integration_tests_options.addOptionPath("vortex_exe", vortex_artifact.emitted_bin.?);
+    // [shopify]
+    integration_tests_options.addOption(
+        bool,
+        "shopify_integration_skip_upgrade",
+        options.shopify_integration_skip_upgrade,
+    );
+    const integration_test_filters: []const []const u8 =
+        if (options.shopify_integration_upgrade_only)
+            &.{"in-place upgrade"}
+        else
+            b.args orelse &.{};
+
     const integration_tests = b.addTest(.{
         .name = "test-integration",
         .root_module = b.createModule(.{
@@ -1172,7 +1233,7 @@ fn build_test_integration(
             .target = options.target,
             .optimize = options.mode,
         }),
-        .filters = b.args orelse &.{},
+        .filters = integration_test_filters,
         // [shopify] Simple-mode runner; see `src/shopify/test_runner.zig`.
         .test_runner = .{
             .path = b.path("src/shopify/test_runner.zig"),

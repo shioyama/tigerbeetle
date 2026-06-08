@@ -23,6 +23,8 @@ const ratio = stdx.PRNG.ratio;
 const vortex_exe: []const u8 = @import("test_options").vortex_exe;
 const tigerbeetle: []const u8 = @import("test_options").tigerbeetle_exe;
 const tigerbeetle_next: []const u8 = @import("test_options").tigerbeetle_next_exe;
+const shopify_integration_skip_upgrade: bool =
+    @import("test_options").shopify_integration_skip_upgrade;
 
 comptime {
     _ = @import("clients/c/tb_client_header_test.zig");
@@ -370,6 +372,9 @@ test "help/version smoke" {
 }
 
 test "in-place upgrade" {
+    // [shopify] Buildkite runs this long test in its own integration shard.
+    if (shopify_integration_skip_upgrade) return error.SkipZigTest;
+
     if (builtin.target.os.tag != .linux) {
         return error.SkipZigTest;
     }
