@@ -388,9 +388,6 @@ fn command_start(
             },
             .grid_cache_blocks_count = args.cache_grid_blocks,
             .tracer = tracer,
-            .replicate_options = .{
-                .star = args.replicate_star,
-            },
             .shadower = shadow.is_shadower, // [shopify]
         },
     ) catch |err| switch (err) {

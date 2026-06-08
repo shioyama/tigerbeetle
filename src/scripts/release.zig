@@ -197,26 +197,9 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     assert(release.value >
         (try multiversion.Release.parse(first_multiversion_release)).value);
 
-    // The minimum client version allowed to connect. This has implications for backwards
-    // compatibility and the upgrade path for replicas and clients. If there's no overlap
-    // between a replica version and minimum client version - eg, replica 0.15.4 requires
-    // client 0.15.4 - it means that upgrading requires coordination with clients, which
-    // will be very inconvenient for operators.
-    const release_triple_client_min = .{
-        .major = 0,
-        .minor = 16,
-        .patch = 4,
-    }; // NB: grep for 'TODO(client_release)' after changing!
-
     const version_info = VersionInfo{
-        .release_triple = try shell.fmt(
-            "{[major]}.{[minor]}.{[patch]}",
-            release.triple(),
-        ),
-        .release_triple_client_min = try shell.fmt(
-            "{[major]}.{[minor]}.{[patch]}",
-            release_triple_client_min,
-        ),
+        .release_triple = try shell.fmt("{[major]}.{[minor]}.{[patch]}", release.triple()),
+        .release_triple_client_min = @import("vsr_options").release_client_min,
         .tag = try shell.fmt(
             "{[major]}.{[minor]}.{[patch]}",
             release.triple(),
@@ -414,6 +397,8 @@ fn build_tigerbeetle_target(
         .tag_multiversion = info.tag_multiversion,
     });
 
+    const linux_aarch64 = comptime std.mem.eql(u8, target, "aarch64-linux");
+    const linux_x86_64 = comptime std.mem.eql(u8, target, "x86_64-linux");
     const windows = comptime std.mem.eql(u8, target, "x86_64-windows");
     const macos = comptime std.mem.eql(u8, target, "aarch64-macos");
 
@@ -423,7 +408,8 @@ fn build_tigerbeetle_target(
         (if (debug) "-debug" else "") ++
         ".zip";
 
-    if ((std.mem.eql(u8, target, "x86_64-linux") and builtin.target.os.tag == .linux) or
+    if ((linux_aarch64 and builtin.target.os.tag == .linux and builtin.cpu.arch == .aarch64) or
+        (linux_x86_64 and builtin.target.os.tag == .linux and builtin.cpu.arch == .x86_64) or
         (macos and builtin.target.os.tag == .macos) or
         (windows and builtin.target.os.tag == .windows))
     {
