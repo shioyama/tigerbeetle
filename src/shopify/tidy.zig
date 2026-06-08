@@ -3,21 +3,25 @@
 //!   1. Every commit on the PR branch authored by `@shopify.com` must be prefixed
 //!      with `[shopify]`. Non-Shopify-authored commits (e.g. upstream commits brought
 //!      in by an `upstream-merge` PR) are exempt.
-//!   2. If any non-test `src/` file changed in a Shopify-authored commit,
+//!   2. `SHOPIFY-CHANGELOG.md` is well-formed — every entry sits under a section
+//!      and carries a fork-PR link.
+//!   3. If any non-test `src/` file changed in a Shopify-authored commit,
 //!      `SHOPIFY-CHANGELOG.md` must be updated in the same PR. A commit whose message
 //!      contains `skip-changelog-check` exempts its own changes only — other commits
 //!      in the PR still trigger the check.
-//!   3. `SHOPIFY-CHANGELOG.md` is well-formed — every entry sits under a section
-//!      and carries a fork-PR link.
-//!   4. Functions in `src/shopify/` use snake_case, matching TigerBeetle's convention
+//!   4. New `SHOPIFY-CHANGELOG.md` entries must be added under the
+//!      `## TigerBeetle (unreleased)` header. Release PRs that only finalize the
+//!      unreleased header to a concrete version are allowed. A commit whose message
+//!      contains `skip-changelog-check` exempts its own changelog entries only.
+//!   5. Functions in `src/shopify/` use snake_case, matching TigerBeetle's convention
 //!      (not Zig stdlib's camelCase). PascalCase type-returning functions are allowed.
-//!   5. `.shopify-build/fork-versions.txt` lists the latest `-shopifyN` per
+//!   6. `.shopify-build/fork-versions.txt` lists the latest `-shopifyN` per
 //!      `X.Y.Z` patch line reachable from `HEAD^`, newest first, capped at four
 //!      patch lines. Dedup by base avoids burning a vortex slot on a same-base
 //!      bump that shares a wire version with its sibling; keeping the highest
 //!      `N` means any hotfix code that landed on `-shopifyN>1` is the binary
 //!      that gets bundled.
-//!   6. When the latest released fork's base version matches upstream's latest
+//!   7. When the latest released fork's base version matches upstream's latest
 //!      version (i.e. the next fork cut would be a same-`X.Y.Z` `-shopifyN` bump),
 //!      Shopify-authored commits on non-`release/*` branches may not touch files in
 //!      the server binary's `@import` closure (computed from the build cache, rooted
@@ -25,9 +29,9 @@
 //!      `skip-versioning-check` exempts its own changes only — for hotfixes that need
 //!      to ship server code despite the block.
 //!
-//! Checks 1, 2, and 6 diff against `BUILDKITE_PULL_REQUEST_BASE_BRANCH` if set, and
-//! fall back to `main` otherwise so the checks exercise locally too. Checks 3, 4, and
-//! 5 run unconditionally.
+//! Checks 1, 3, 4, and 7 diff against `BUILDKITE_PULL_REQUEST_BASE_BRANCH` if set,
+//! and fall back to `main` otherwise so the checks exercise locally too. Checks 2, 5,
+//! and 6 run unconditionally.
 
 const std = @import("std");
 const mem = std.mem;
@@ -77,15 +81,15 @@ test "tidy shopify fork" {
     const shell = try Shell.create(allocator);
     defer shell.destroy();
 
-    // Check 3: SHOPIFY-CHANGELOG.md is structurally well-formed. Runs
+    // Check 2: SHOPIFY-CHANGELOG.md is structurally well-formed. Runs
     // unconditionally — independent of git history — so it catches malformed
     // entries even on branches that don't touch `src/`.
     try validate_shopify_changelog_structure(shell);
 
-    // Check 4: Functions in src/shopify/ use snake_case.
+    // Check 5: Functions in src/shopify/ use snake_case.
     try validate_snake_case_functions(shell);
 
-    // Check 5: fork-versions.txt manifest matches git tag history.
+    // Check 6: fork-versions.txt manifest matches git tag history.
     try validate_fork_versions_manifest(shell);
 
     const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse "main";
@@ -98,7 +102,7 @@ test "tidy shopify fork" {
         return;
     };
 
-    // Check 6: server-touching changes are blocked when the latest released fork
+    // Check 7: server-touching changes are blocked when the latest released fork
     // base version equals upstream's latest version; in this situation, the next
     // fork cut would match the `X.Y.Z` portion of the full fork version, causing
     // a multiversion upgrade to fail. This condition is cleared on an upstream
@@ -113,15 +117,17 @@ test "tidy shopify fork" {
         server_closure = try compute_server_closure(shell);
     }
 
-    // Checks 1, 2, and 6 share a per-commit walk: subject prefix, src/-vs-changelog
-    // accounting, and the same-triple server-touching block. All three filter on author
-    // email being `@shopify.com`, so an upstream-merge PR doesn't trip on
-    // upstream-authored commits brought in via the merge commit.
+    // Checks 1, 3, 4, and 7 share a per-commit walk: subject prefix,
+    // src/-vs-changelog accounting, changelog entry placement, and the same-triple
+    // server-touching block. Checks 1, 3, and 7 filter on author email being
+    // `@shopify.com`, so an upstream-merge PR doesn't trip on upstream-authored
+    // commits brought in via the merge commit.
     {
         const shas = try shell.exec_stdout("git log --format=%H FETCH_HEAD..HEAD", .{});
         var has_bad_commits = false;
         var has_unskipped_src_changes = false;
         var has_versioning_violations = false;
+        var has_changelog_entry_violations = false;
         var changelog_changed = false;
         var sha_lines = mem.splitScalar(u8, shas, '\n');
         while (sha_lines.next()) |sha| {
@@ -150,8 +156,9 @@ test "tidy shopify fork" {
                 has_bad_commits = true;
             }
 
-            // Check 2: src/ vs changelog. `skip-changelog-check` exempts a commit's
-            // src/ changes only; other commits in the PR still trigger the check.
+            // Checks 3 and 4: src/ vs changelog, and changelog entry placement.
+            // `skip-changelog-check` exempts a commit's own src/ changes and
+            // changelog entries only; other commits in the PR still trigger the checks.
             const changelog_skipped = mem.indexOf(u8, msg, "skip-changelog-check") != null;
             if (changelog_skipped) {
                 print_diagnostic(
@@ -160,7 +167,7 @@ test "tidy shopify fork" {
                 );
             }
 
-            // Check 6 per-commit skip. Independent of `skip-changelog-check` —
+            // Check 7 per-commit skip. Independent of `skip-changelog-check` —
             // hotfixes typically still require a changelog entry.
             const versioning_skipped = mem.indexOf(u8, msg, "skip-versioning-check") != null;
             if (server_changes_blocked and versioning_skipped) {
@@ -174,11 +181,13 @@ test "tidy shopify fork" {
                 "git diff-tree --no-commit-id --name-only -r {sha}",
                 .{ .sha = sha },
             );
+            var commit_changelog_changed = false;
             var file_lines = mem.splitScalar(u8, files, '\n');
             while (file_lines.next()) |path| {
                 if (path.len == 0) continue;
                 if (mem.eql(u8, path, "SHOPIFY-CHANGELOG.md")) {
                     changelog_changed = true;
+                    commit_changelog_changed = true;
                     continue;
                 }
                 if (!shopify_authored) continue;
@@ -202,6 +211,16 @@ test "tidy shopify fork" {
                     has_versioning_violations = true;
                 }
             }
+
+            if (commit_changelog_changed and !changelog_skipped) {
+                if (try validate_commit_changelog_entries_target_unreleased(
+                    shell,
+                    sha,
+                    short_sha,
+                )) {
+                    has_changelog_entry_violations = true;
+                }
+            }
         }
         if (has_bad_commits) return error.BadCommitPrefix;
         if (has_unskipped_src_changes and !changelog_changed) {
@@ -212,8 +231,176 @@ test "tidy shopify fork" {
             );
             return error.ChangelogNotUpdated;
         }
+        if (has_changelog_entry_violations) return error.ChangelogEntryAddedToReleasedSection;
         if (has_versioning_violations) return error.ServerChangeWithoutTripleBump;
     }
+}
+
+const unreleased_header = "## TigerBeetle (unreleased)";
+
+fn validate_commit_changelog_entries_target_unreleased(
+    shell: *Shell,
+    sha: []const u8,
+    short_sha: []const u8,
+) !bool {
+    const diff = try shell.exec_stdout(
+        "git diff-tree --no-commit-id --unified=0 -p -r {sha} -- SHOPIFY-CHANGELOG.md",
+        .{ .sha = sha },
+    );
+    if (diff.len == 0) return false;
+
+    const object = try shell.fmt("{s}:SHOPIFY-CHANGELOG.md", .{sha});
+    const text = shell.exec_stdout("git show {object}", .{ .object = object }) catch return false;
+    if (find_changelog_entry_added_outside_unreleased(text, diff)) |violation| {
+        if (violation.release_header) |header| {
+            print_diagnostic(
+                "SHOPIFY-CHANGELOG.md:{d}: error: changelog entries must be " ++
+                    "added under `{s}`, not `{s}` (commit {s})\n",
+                .{ violation.line_number, unreleased_header, header, short_sha },
+            );
+        } else {
+            print_diagnostic(
+                "SHOPIFY-CHANGELOG.md:{d}: error: changelog entries must be " ++
+                    "added under `{s}` (commit {s})\n",
+                .{ violation.line_number, unreleased_header, short_sha },
+            );
+        }
+        return true;
+    }
+
+    return false;
+}
+
+const ChangelogEntrySectionViolation = struct {
+    line_number: usize,
+    release_header: ?[]const u8,
+};
+
+fn find_changelog_entry_added_outside_unreleased(
+    head_text: []const u8,
+    diff_text: []const u8,
+) ?ChangelogEntrySectionViolation {
+    var new_line_number: ?usize = null;
+    var diff_lines = mem.splitScalar(u8, diff_text, '\n');
+    while (diff_lines.next()) |diff_line| {
+        if (mem.startsWith(u8, diff_line, "@@ ")) {
+            new_line_number = parse_unified_diff_new_start(diff_line);
+            continue;
+        }
+
+        const current_line = new_line_number orelse continue;
+        if (mem.startsWith(u8, diff_line, "+")) {
+            if (mem.startsWith(u8, diff_line, "+++")) continue;
+            if (mem.startsWith(u8, diff_line[1..], "- ")) {
+                const header = changelog_release_header_at_line(head_text, current_line);
+                if (header == null or !mem.eql(u8, header.?, unreleased_header)) {
+                    return .{
+                        .line_number = current_line,
+                        .release_header = header,
+                    };
+                }
+            }
+            new_line_number = current_line + 1;
+        } else if (mem.startsWith(u8, diff_line, "-")) {
+            continue;
+        } else if (mem.startsWith(u8, diff_line, "\\ No newline at end of file")) {
+            continue;
+        } else {
+            new_line_number = current_line + 1;
+        }
+    }
+
+    return null;
+}
+
+fn parse_unified_diff_new_start(hunk_header: []const u8) ?usize {
+    const plus_index = mem.indexOf(u8, hunk_header, " +") orelse return null;
+    var rest = hunk_header[plus_index + " +".len ..];
+    const end = mem.indexOfAny(u8, rest, ", ") orelse return null;
+    rest = rest[0..end];
+    return std.fmt.parseInt(usize, rest, 10) catch null;
+}
+
+fn changelog_release_header_at_line(text: []const u8, target_line: usize) ?[]const u8 {
+    var release_header: ?[]const u8 = null;
+    var line_number: usize = 0;
+    var lines = mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        line_number += 1;
+        if (line_number > target_line) break;
+        if (mem.startsWith(u8, line, "## ")) release_header = line;
+    }
+    return release_header;
+}
+
+test "find_changelog_entry_added_outside_unreleased" {
+    try std.testing.expect(find_changelog_entry_added_outside_unreleased(
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle (unreleased)
+        \\
+        \\### Tooling
+        \\
+        \\- [#1](https://github.com/shop/tigerbeetle/pull/1)
+        \\
+        \\  Add a check.
+    ,
+        \\diff --git a/SHOPIFY-CHANGELOG.md b/SHOPIFY-CHANGELOG.md
+        \\@@ -0,0 +5,4 @@
+        \\+### Tooling
+        \\+
+        \\+- [#1](https://github.com/shop/tigerbeetle/pull/1)
+        \\+
+    ) == null);
+
+    const released_violation = find_changelog_entry_added_outside_unreleased(
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle 0.17.0-shopify1
+        \\
+        \\### Tooling
+        \\
+        \\- [#1](https://github.com/shop/tigerbeetle/pull/1)
+        \\
+        \\  Add a check.
+    ,
+        \\diff --git a/SHOPIFY-CHANGELOG.md b/SHOPIFY-CHANGELOG.md
+        \\@@ -0,0 +5,4 @@
+        \\+### Tooling
+        \\+
+        \\+- [#1](https://github.com/shop/tigerbeetle/pull/1)
+        \\+
+    ).?;
+    try std.testing.expectEqual(@as(usize, 7), released_violation.line_number);
+    try std.testing.expectEqualStrings(
+        "## TigerBeetle 0.17.0-shopify1",
+        released_violation.release_header.?,
+    );
+
+    try std.testing.expect(find_changelog_entry_added_outside_unreleased(
+        \\# Shopify Changelog
+        \\
+        \\## TigerBeetle 0.17.1-shopify1
+        \\
+        \\Released: 2026-06-08
+        \\
+        \\### Tooling
+        \\
+        \\- [#1](https://github.com/shop/tigerbeetle/pull/1)
+        \\
+        \\  Add a check.
+    ,
+        \\diff --git a/SHOPIFY-CHANGELOG.md b/SHOPIFY-CHANGELOG.md
+        \\@@ -1,5 +1,7 @@
+        \\ # Shopify Changelog
+        \\
+        \\-## TigerBeetle (unreleased)
+        \\+## TigerBeetle 0.17.1-shopify1
+        \\+
+        \\+Released: 2026-06-08
+        \\
+        \\ ### Tooling
+    ) == null);
 }
 
 // Walk every .zig file under src/shopify/ and report any function declarations whose
