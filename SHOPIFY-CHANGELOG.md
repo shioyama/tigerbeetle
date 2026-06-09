@@ -3,7 +3,9 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
-## TigerBeetle (unreleased)
+## TigerBeetle 0.17.3-shopify1
+
+Released: 2026-06-09
 
 ### Patches
 
