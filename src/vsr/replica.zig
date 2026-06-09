@@ -28,6 +28,9 @@ const RepairBudgetJournal = @import("repair_budget.zig").RepairBudgetJournal;
 const RepairBudgetGrid = @import("repair_budget.zig").RepairBudgetGrid;
 const Multiversion = @import("../multiversion.zig").Multiversion;
 
+// [shopify]
+const shopify_wal_skip = @import("../shopify/wal_skip.zig");
+
 const marks = @import("../testing/marks.zig");
 
 const vsr = @import("../vsr.zig");
@@ -40,6 +43,33 @@ const ClientSessions = vsr.ClientSessions;
 const Tracer = vsr.trace.Tracer;
 
 const log = marks.wrap_log(stdx.log.scoped(.replica));
+
+// [shopify]
+fn wal_clean_for_fast_recovery_state(
+    dirty_count: u64,
+    faulty_count: u64,
+    writes_executing: usize,
+) bool {
+    return dirty_count == 0 and faulty_count == 0 and writes_executing == 0;
+}
+
+// [shopify]
+test "wal_clean_for_fast_recovery_state" {
+    for ([_]u64{ 0, 1 }) |dirty_count| {
+        for ([_]u64{ 0, 1 }) |faulty_count| {
+            for ([_]usize{ 0, 1 }) |writes_executing| {
+                try std.testing.expectEqual(
+                    dirty_count == 0 and faulty_count == 0 and writes_executing == 0,
+                    wal_clean_for_fast_recovery_state(
+                        dirty_count,
+                        faulty_count,
+                        writes_executing,
+                    ),
+                );
+            }
+        }
+    }
+}
 
 pub const Status = enum {
     normal,
@@ -623,6 +653,11 @@ pub fn ReplicaType(
         aof: ?*AOF,
         aof_recovery: bool,
 
+        // [shopify] Lever for the WAL-skip-on-upgrade optimization. Read once from
+        // `TB_DISABLE_SKIP_WAL_ON_UPGRADE` at init; the static allocator forbids
+        // per-checkpoint env lookups. See `src/shopify/wal_skip.zig`.
+        wal_skip_on_upgrade_enabled: bool,
+
         const OpenOptions = struct {
             node_count: u8,
             pipeline_requests_limit: u32,
@@ -745,6 +780,17 @@ pub fn ReplicaType(
                 },
             );
 
+            // [shopify] Read the WAL-skip lever once; the env var is the operator's
+            // override for known-incompatible upgrade targets (e.g. upstream). Must be
+            // captured before the static allocator forbids further allocation.
+            self.wal_skip_on_upgrade_enabled = shopify_wal_skip.enabled_from_env(allocator);
+            if (!self.wal_skip_on_upgrade_enabled) {
+                log.info("{}: {s}=1; WAL skip on upgrade disabled", .{
+                    self.log_prefix(),
+                    shopify_wal_skip.env_var,
+                });
+            }
+
             // Disable all dynamic allocation from this point onwards.
             self.static_allocator.transition_from_init_to_static();
 
@@ -767,8 +813,33 @@ pub fn ReplicaType(
             errdefer self.deinit(allocator);
 
             self.opened = false;
-            self.journal.recover(journal_recover_callback);
+            // [shopify] Upstream unconditionally calls `self.journal.recover(...)`. The
+            // flag_wal_skip_next_recovery bit is set by an upgrade checkpoint to opt into the fast
+            // header-only recovery path.
+            const skip_wal = self.superblock.working.flags &
+                vsr.superblock.SuperBlockHeader.flag_wal_skip_next_recovery != 0;
+            if (skip_wal) {
+                log.info("{}: open: skipping WAL recovery (clean upgrade)", .{self.log_prefix()});
+                self.journal.recover_fast(journal_recover_callback);
+            } else {
+                self.journal.recover(journal_recover_callback);
+            }
             while (!self.opened) self.superblock.storage.run();
+
+            // [shopify] The WAL-skip flag is one-shot. Clear it durably before returning to
+            // service so a later crash cannot take the fast path for post-upgrade WAL writes.
+            if (skip_wal) {
+                assert(self.superblock.working.flags &
+                    vsr.superblock.SuperBlockHeader.flag_wal_skip_next_recovery != 0);
+                self.opened = false;
+                self.superblock.update_flags(
+                    superblock_update_flags_callback,
+                    &self.superblock_context,
+                    0,
+                );
+                while (!self.opened) self.superblock.storage.run();
+                assert(self.superblock.working.flags == 0);
+            }
 
             // Abort if all slots are faulty, since something is very wrong.
             if (self.journal.faulty.count == constants.journal_slot_count) return error.WALInvalid;
@@ -884,7 +955,20 @@ pub fn ReplicaType(
                 // completes.
                 self.log_view += 1;
                 self.view += 1;
-                self.primary_update_view_headers();
+                // [shopify] Upstream unconditionally calls `self.primary_update_view_headers()`.
+                // After a clean upgrade WAL skip, self.view_headers was initialized from the
+                // upgrade checkpoint's superblock in init() and already contains the head op.
+                // The journal has only reserved headers so find_latest_headers_break_between
+                // would report a full-journal break and fail primary_update_view_headers.
+                // The superblock view_headers are correct and sufficient for view_durable_update.
+                if (skip_wal) {
+                    log.mark.info(
+                        "{}: startup recovery: WAL skip uses checkpoint view_headers",
+                        .{self.log_prefix()},
+                    );
+                } else {
+                    self.primary_update_view_headers();
+                }
                 self.view_durable_update();
 
                 if (self.commit_min == self.op) {
@@ -940,6 +1024,17 @@ pub fn ReplicaType(
                 @fieldParentPtr("superblock_context", superblock_context),
             );
             assert(!self.opened);
+            self.opened = true;
+        }
+
+        // [shopify]
+        fn superblock_update_flags_callback(superblock_context: *SuperBlock.Context) void {
+            const self: *Replica = @alignCast(
+                @fieldParentPtr("superblock_context", superblock_context),
+            );
+            assert(!self.opened);
+            assert(self.superblock.working.flags == 0);
+            log.mark.info("{}: startup recovery: cleared WAL skip flag", .{self.log_prefix()});
             self.opened = true;
         }
 
@@ -1457,6 +1552,9 @@ pub fn ReplicaType(
                 .test_context = self.test_context,
                 .aof = options.aof,
                 .aof_recovery = options.aof_recovery,
+                // [shopify] Set by `open()` after `init()` returns, while the static
+                // allocator still permits env-var reads.
+                .wal_skip_on_upgrade_enabled = undefined,
             };
 
             log.info("{}: init: replica_count={} quorum_view_change={} quorum_replication={} " ++
@@ -5220,22 +5318,51 @@ pub fn ReplicaType(
             const shadower_shutdown_checkpoint = self.shutdown_for_next_checkpoint();
             self.shadower_shutdown_checkpoint_pending = shadower_shutdown_checkpoint;
 
+            // [shopify] Only set the skip flag if the WAL is already locally clean. Runtime
+            // upgrade is an exec boundary, so any in-flight WAL repair/append would otherwise be
+            // skipped by the new binary's header-only recovery path.
+            const next_release = self.release_for_next_checkpoint().?;
+            const is_upgrade = next_release.value != self.release.value;
+            const wal_skip_next_recovery = self.wal_skip_on_upgrade_enabled and is_upgrade and
+                self.wal_clean_for_fast_recovery();
+            const include_view_headers = !self.solo() or wal_skip_next_recovery;
+            if (self.solo() and is_upgrade and !wal_skip_next_recovery) {
+                log.mark.info(
+                    "{}: commit_checkpoint_superblock: solo upgrade checkpoint omits " ++
+                        "view_headers",
+                    .{self.log_prefix()},
+                );
+            }
+            if (wal_skip_next_recovery) {
+                assert(is_upgrade);
+                assert(self.wal_skip_on_upgrade_enabled);
+                assert(self.journal.dirty.count == 0);
+                assert(self.journal.faulty.count == 0);
+                assert(self.journal.writes.executing() == 0);
+            }
+            if (self.solo()) assert(include_view_headers == wal_skip_next_recovery);
+
             self.superblock.checkpoint(
                 commit_checkpoint_superblock_callback,
                 &self.superblock_context,
                 .{
                     .header = self.journal.header_with_op(vsr_state_commit_min).?.*,
                     .view_attributes = view_attributes: {
-                        // view_headers for solo replicas do not include ops that are not durable in
-                        // their journal.
-                        break :view_attributes if (self.solo())
-                            null
-                        else
+                        // [shopify] Upstream gates view_headers purely on `self.solo()`.
+                        // Solo replicas normally exclude view_headers to avoid referencing ops not
+                        // yet durable in their journal. The exception is checkpoints that set the
+                        // WAL-skip flag: solo startup recovery then skips
+                        // primary_update_view_headers() and immediately persists a view/log_view
+                        // update, so the checkpoint must already carry view_headers valid for the
+                        // new checkpoint head.
+                        break :view_attributes if (include_view_headers)
                             .{
                                 .headers = &self.view_headers,
                                 .view = self.view,
                                 .log_view = self.log_view,
-                            };
+                            }
+                        else
+                            null;
                     },
                     .commit_max = self.commit_max,
                     .sync_op_min = sync_op_min,
@@ -5251,7 +5378,14 @@ pub fn ReplicaType(
                     .client_sessions_reference = self
                         .client_sessions_checkpoint.checkpoint_reference(),
                     .storage_size = storage_size,
-                    .release = self.release_for_next_checkpoint().?,
+                    .release = next_release,
+                    // [shopify] Signal the new binary to skip WAL recovery after exec().
+                    // Suppressed when `TB_DISABLE_SKIP_WAL_ON_UPGRADE=1`, the operator lever for
+                    // upgrading to a binary that doesn't understand the flag.
+                    .flags = if (wal_skip_next_recovery)
+                        vsr.superblock.SuperBlockHeader.flag_wal_skip_next_recovery
+                    else
+                        0,
                 },
             );
             return .pending;
@@ -10915,6 +11049,28 @@ pub fn ReplicaType(
             // - For testing/cluster.zig: `self` is no longer valid – the replica has been
             //   deinitialized and re-opened on the new version.
             // - For tigerbeetle/main.zig: This is unreachable (release_execute() will not return).
+        }
+
+        // [shopify]
+        fn wal_clean_for_fast_recovery(self: *const Replica) bool {
+            const dirty_count = self.journal.dirty.count;
+            const faulty_count = self.journal.faulty.count;
+            const writes_executing = self.journal.writes.executing();
+
+            if (wal_clean_for_fast_recovery_state(
+                dirty_count,
+                faulty_count,
+                writes_executing,
+            )) {
+                return true;
+            }
+
+            log.warn(
+                "{}: commit_checkpoint_superblock: WAL skip on upgrade disabled; " ++
+                    "dirty={} faulty={} writes_executing={}",
+                .{ self.log_prefix(), dirty_count, faulty_count, writes_executing },
+            );
+            return false;
         }
 
         /// Returns the next checkpoint's `CheckpointState.release`.

@@ -142,6 +142,10 @@ pub fn JournalType(comptime Replica: type, comptime Storage: type) type {
         const Status = union(enum) {
             init: void,
             recovering: *const fn (journal: *Journal) void,
+            // [shopify]
+            /// Like recovering, but skips body reads: only the WAL header ring is read.
+            /// Safe after a clean upgrade checkpoint because the WAL has no corruption.
+            recovering_fast: *const fn (journal: *Journal) void,
             recovered: void,
         };
 
@@ -957,9 +961,134 @@ pub fn JournalType(comptime Replica: type, comptime Storage: type) type {
             assert(journal.header_chunks_requested.count() == journal.reads.executing());
         }
 
+        // [shopify] Begin: recover_fast / recover_fast_complete.
+        /// Skip WAL body reads for a clean upgrade restart. Reads only the WAL header ring
+        /// (256KiB) and populates journal.headers from it, skipping the expensive 1GiB body
+        /// validation. dirty/faulty are cleared because the WAL is known clean after a successful
+        /// upgrade checkpoint + exec().
+        pub fn recover_fast(journal: *Journal, callback: *const fn (journal: *Journal) void) void {
+            assert(journal.status == .init);
+            assert(journal.dirty.count == slot_count);
+            assert(journal.faulty.count == slot_count);
+            assert(journal.reads.executing() == 0);
+            assert(journal.writes.executing() == 0);
+            assert(journal.header_chunks_requested.empty());
+            assert(journal.header_chunks_recovered.empty());
+
+            const replica: *Replica = @alignCast(@fieldParentPtr("journal", journal));
+
+            // Initialize headers to reserved; recover_fast_complete() will overwrite with valid
+            // headers from the WAL header ring once the reads complete.
+            for (journal.headers, 0..) |*header, i| {
+                header.* = Header.Prepare.reserve(replica.cluster, i);
+            }
+            for (journal.headers_redundant, 0..) |*header, i| {
+                header.* = Header.Prepare.reserve(replica.cluster, i);
+            }
+
+            journal.status = .{ .recovering_fast = callback };
+            log.debug(
+                "{}: recover_fast: reading WAL headers (skipping body validation)",
+                .{journal.replica},
+            );
+
+            var available: usize = journal.reads.available();
+            while (available > 0) : (available -= 1) journal.recover_headers();
+
+            assert(journal.header_chunks_recovered.empty());
+            assert(journal.header_chunks_requested.count() == journal.reads.executing());
+        }
+
+        /// Called after all WAL header chunks are read during recover_fast.
+        /// Populates journal.headers from headers_redundant (trusted clean after upgrade),
+        /// clears dirty/faulty, and invokes the callback.
+        fn recover_fast_complete(journal: *Journal) void {
+            const replica: *Replica = @alignCast(@fieldParentPtr("journal", journal));
+            assert(journal.status == .recovering_fast);
+            assert(journal.header_chunks_recovered.full());
+            assert(journal.dirty.count == slot_count);
+            assert(journal.faulty.count == slot_count);
+            assert(journal.reads.executing() == 0);
+            assert(journal.writes.executing() == 0);
+
+            for (journal.headers, journal.headers_redundant, 0..) |*header, *redundant, i| {
+                assert(std.meta.eql(header.*, Header.Prepare.reserve(replica.cluster, i)));
+                assert(!journal.prepare_inhabited[i]);
+                assert(journal.prepare_checksums[i] == 0);
+
+                const slot = Slot{ .index = i };
+                if (header_ok(replica.cluster, slot, redundant)) |h| {
+                    header.* = h;
+                    // Trust the WAL is clean after a successful upgrade: treat every valid
+                    // non-reserved header as having an intact prepare body on disk so that
+                    // read_prepare() can locate and read those prepare bodies.
+                    if (h.operation != .reserved) {
+                        assert(!journal.prepare_inhabited[i]);
+                        journal.prepare_inhabited[i] = true;
+                        journal.prepare_checksums[i] = h.checksum;
+                    }
+                }
+                // else: slot stays reserved (initialized in recover_fast above)
+            }
+
+            journal.recover_fast_drop_stale_headers();
+
+            journal.dirty.bits.unsetAll();
+            journal.dirty.count = 0;
+            journal.faulty.bits.unsetAll();
+            journal.faulty.count = 0;
+
+            log.debug(
+                "{}: recover_fast_complete: WAL headers loaded (clean upgrade)",
+                .{journal.replica},
+            );
+
+            const callback = journal.status.recovering_fast;
+            journal.status = .recovered;
+            callback(journal);
+        }
+
+        /// Keep full recovery's log-membership filtering even when skipping WAL body reads.
+        /// Valid redundant headers can remain on disk after truncation/view-change, but they must
+        /// not be allowed to become the recovered head merely because their checksum is intact.
+        fn recover_fast_drop_stale_headers(journal: *Journal) void {
+            const replica: *Replica = @alignCast(@fieldParentPtr("journal", journal));
+            const log_view = replica.superblock.working.vsr_state.log_view;
+            const view_headers = replica.superblock.working.view_headers();
+
+            assert(journal.status == .recovering_fast);
+            assert(journal.reads.executing() == 0);
+            assert(journal.writes.executing() == 0);
+
+            for (journal.headers, 0..) |*header_untrusted, index| {
+                const slot = Slot{ .index = index };
+                const header = header_ok(replica.cluster, slot, header_untrusted) orelse continue;
+
+                if (header.operation == .reserved) continue;
+
+                const view_range = view_headers.view_for_op(header.op, log_view);
+                assert(view_range.max <= log_view);
+
+                if (!view_range.contains(header.view)) {
+                    log.warn("{}: recover_fast: drop header " ++
+                        "view_range={}..{} view={} op={} checksum={x:0>32}", .{
+                        journal.replica,
+                        view_range.min,
+                        view_range.max,
+                        header.view,
+                        header.op,
+                        header.checksum,
+                    });
+                    journal.remove_entry(slot);
+                }
+            }
+        }
+        // [shopify] End.
+
         fn recover_headers(journal: *Journal) void {
             const replica: *Replica = @alignCast(@fieldParentPtr("journal", journal));
-            assert(journal.status == .recovering);
+            // [shopify] Accept `.recovering_fast` here.
+            assert(journal.status == .recovering or journal.status == .recovering_fast);
             assert(journal.reads.available() > 0);
             assert(
                 journal.header_chunks_recovered.count() <= journal.header_chunks_requested.count(),
@@ -967,7 +1096,13 @@ pub fn JournalType(comptime Replica: type, comptime Storage: type) type {
 
             if (journal.header_chunks_recovered.full()) {
                 log.debug("{}: recover_headers: complete", .{journal.replica});
-                journal.recover_prepares();
+                // [shopify] Upstream calls `journal.recover_prepares()` directly; we dispatch on
+                // status to also route into `recover_fast_complete` for upgrade fast-path opens.
+                switch (journal.status) {
+                    .recovering => journal.recover_prepares(),
+                    .recovering_fast => journal.recover_fast_complete(),
+                    else => unreachable,
+                }
                 return;
             }
 
@@ -1014,7 +1149,8 @@ pub fn JournalType(comptime Replica: type, comptime Storage: type) type {
             const chunk_read: *Journal.Read = @alignCast(@fieldParentPtr("completion", completion));
             const journal = chunk_read.journal;
             const replica: *Replica = @alignCast(@fieldParentPtr("journal", journal));
-            assert(journal.status == .recovering);
+            // [shopify] Accept `.recovering_fast` here.
+            assert(journal.status == .recovering or journal.status == .recovering_fast);
             assert(chunk_read.options.destination_replica == null);
 
             const chunk_index = chunk_read.options.op;
@@ -2502,6 +2638,133 @@ fn header_ok(
 
     // Do not check the checksum here, because that would run only after the other field accesses.
     return if (valid_cluster_command_and_slot) header.* else null;
+}
+
+// [shopify]
+test "recover_fast drops stale headers outside durable view history" {
+    const TestStorage = struct {
+        const Read = struct {};
+        const Write = struct {};
+    };
+
+    const TestReplica = struct {
+        cluster: u128,
+        superblock: SuperBlock,
+        journal: Journal,
+
+        const Journal = JournalType(@This(), TestStorage);
+
+        const SuperBlock = struct {
+            working: Working,
+        };
+
+        const Working = struct {
+            vsr_state: struct { log_view: u32 },
+            headers: vsr.Headers.ViewChangeArray,
+
+            fn view_headers(working: *const Working) vsr.Headers.ViewChangeSlice {
+                return vsr.Headers.ViewChangeSlice.init(
+                    working.headers.command,
+                    working.headers.array.const_slice(),
+                );
+            }
+        };
+
+        fn recover_fast_callback(_: *Journal) void {}
+    };
+
+    const allocator = std.testing.allocator;
+    const cluster: u128 = 42;
+
+    const header = struct {
+        fn prepare(op: u64, view: u32, parent: u128) Header.Prepare {
+            var prepare_header = Header.Prepare{
+                .cluster = cluster,
+                .command = .prepare,
+                .release = vsr.Release.minimum,
+                .operation = .pulse,
+                .parent = parent,
+                .request_checksum = 0,
+                .checkpoint_id = 1,
+                .client = 0,
+                .op = op,
+                .commit = op - 1,
+                .view = view,
+                .timestamp = op,
+                .request = 0,
+            };
+            prepare_header.set_checksum_body(&[0]u8{});
+            prepare_header.set_checksum();
+            assert(prepare_header.invalid() == null);
+            return prepare_header;
+        }
+    };
+
+    const view_7_op_11 = header.prepare(11, 7, 0);
+    const view_8_op_12 = header.prepare(12, 8, view_7_op_11.checksum);
+    const view_8_op_13 = header.prepare(13, 8, view_8_op_12.checksum);
+    const view_headers = vsr.Headers.ViewChangeArray.init(.view, &.{
+        view_8_op_13,
+        view_8_op_12,
+        view_7_op_11,
+    });
+
+    var storage: TestStorage = .{};
+    var replica = TestReplica{
+        .cluster = cluster,
+        .superblock = .{ .working = .{
+            .vsr_state = .{ .log_view = 8 },
+            .headers = view_headers,
+        } },
+        .journal = try TestReplica.Journal.init(allocator, &storage, 0),
+    };
+    defer {
+        replica.journal.dirty.deinit(allocator);
+        replica.journal.faulty.deinit(allocator);
+        allocator.free(replica.journal.headers);
+        allocator.free(replica.journal.headers_redundant);
+        allocator.free(replica.journal.write_headers_sectors);
+        allocator.free(replica.journal.prepare_checksums);
+        allocator.free(replica.journal.prepare_inhabited);
+    }
+
+    for (replica.journal.headers, replica.journal.headers_redundant, 0..) |
+        *journal_header,
+        *journal_header_redundant,
+        slot,
+    | {
+        const reserved = Header.Prepare.reserve(cluster, slot);
+        journal_header.* = reserved;
+        journal_header_redundant.* = reserved;
+    }
+
+    const live_prior_view = header.prepare(10, 7, 0);
+    const stale_op_12 = header.prepare(12, 7, live_prior_view.checksum);
+    const stale_op_13 = header.prepare(13, 7, stale_op_12.checksum);
+
+    inline for (.{ live_prior_view, stale_op_12, stale_op_13 }) |prepare_header| {
+        const slot = prepare_header.op % slot_count;
+        replica.journal.headers[slot] = prepare_header;
+        replica.journal.headers_redundant[slot] = prepare_header;
+        replica.journal.prepare_inhabited[slot] = true;
+        replica.journal.prepare_checksums[slot] = prepare_header.checksum;
+    }
+
+    replica.journal.status = .{ .recovering_fast = TestReplica.recover_fast_callback };
+    replica.journal.recover_fast_drop_stale_headers();
+
+    try std.testing.expect(std.meta.eql(
+        replica.journal.headers[live_prior_view.op % slot_count],
+        live_prior_view,
+    ));
+    try std.testing.expectEqual(
+        Header.Prepare.reserve(cluster, stale_op_12.op % slot_count).checksum,
+        replica.journal.headers[stale_op_12.op % slot_count].checksum,
+    );
+    try std.testing.expectEqual(
+        Header.Prepare.reserve(cluster, stale_op_13.op % slot_count).checksum,
+        replica.journal.headers[stale_op_13.op % slot_count].checksum,
+    );
 }
 
 test "recovery_cases" {
