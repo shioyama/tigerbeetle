@@ -305,6 +305,7 @@ pub fn ContextType(
                 error.AddressLimitExceeded => error.AddressLimitExceeded,
                 error.AddressHasMoreThanOneColon,
                 error.AddressHasTrailingComma,
+                error.AddressDuplicate,
                 error.AddressInvalid,
                 error.PortInvalid,
                 error.PortOverflow,

@@ -680,6 +680,12 @@ pub fn ReplicaType(
             // another cluster as a standby. The standby index is computed as
             // replica_count + own_index.
             shadower: bool = false,
+            // [shopify] CLI address topology, when available. In --shadow mode
+            // this is the source cluster address count; otherwise this is the
+            // current cluster address count. Kept outside MessageBus.Options
+            // because tests use a different MessageBus type.
+            configuration_count: ?u8 = null,
+            shadower_count: u8 = 0,
         };
 
         /// Initializes and opens the provided replica using the options.
@@ -735,11 +741,30 @@ pub fn ReplicaType(
                 });
                 return error.NoAddress;
             }
+            if (!options.shadower and options.shadower_count > 0) {
+                const configuration_count = options.configuration_count.?;
+                if (configuration_count != replica_count) {
+                    vsr.fatal(
+                        .cli,
+                        "open: --addresses count ({}) must equal datafile " ++
+                            "replica_count ({}) when --shadower-count is set",
+                        .{ configuration_count, replica_count },
+                    );
+                }
+                if (replica >= replica_count) {
+                    vsr.fatal(
+                        .cli,
+                        "open: --shadower-count requires an active replica datafile " ++
+                            "(replica={} replica_count={})",
+                        .{ replica, replica_count },
+                    );
+                }
+            }
 
             // [shopify] In shadow mode, override the replica index to a
-            // standby index in the cluster being shadowed. The
-            // node_count/replica_count relationship is validated up front in
-            // src/shopify/shadow.zig.
+            // standby index in the cluster being shadowed. The node_count,
+            // replica_count, and active datafile relationships are validated up
+            // front in src/shopify/shadow.zig.
             if (options.shadower) replica = replica_count + replica;
 
             self.trace = options.tracer;

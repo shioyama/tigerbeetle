@@ -913,6 +913,12 @@ pub fn parse_addresses(
             .string = raw_address,
             .port_default = constants.port,
         });
+
+        for (out_buffer[0..index]) |address_previous| {
+            if (std.net.Address.eql(out_buffer[index], address_previous)) {
+                return error.AddressDuplicate;
+            }
+        }
     }
     assert(index == address_count);
 
@@ -1062,6 +1068,7 @@ test parse_addresses {
         .{ .raw = ":92", .err = error.AddressInvalid },
         .{ .raw = "1.2.3.4:5,2.3.4.5:6,4.5.6.7:8", .err = error.AddressLimitExceeded },
         .{ .raw = "1.2.3.4:7777,", .err = error.AddressHasTrailingComma },
+        .{ .raw = "1.2.3.4:7777,1.2.3.4:7777", .err = error.AddressDuplicate },
         .{ .raw = "1.2.3.4:7777,2.3.4.5::8888", .err = error.AddressHasMoreThanOneColon },
         .{ .raw = "1.2.3.4:5,A", .err = error.AddressInvalid }, // default port
         .{ .raw = "1.2.3.4:5,2.a.4.5", .err = error.AddressInvalid }, // default port

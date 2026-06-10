@@ -389,6 +389,8 @@ fn command_start(
             .grid_cache_blocks_count = args.cache_grid_blocks,
             .tracer = tracer,
             .shadower = shadow.is_shadower, // [shopify]
+            .configuration_count = @intCast(shadow.addresses.len), // [shopify]
+            .shadower_count = shadow.shadower_count, // [shopify]
         },
     ) catch |err| switch (err) {
         error.NoAddress => vsr.fatal(.cli, "all --addresses must be provided", .{}),

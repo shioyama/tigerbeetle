@@ -1050,6 +1050,33 @@ fn parse_args_start(start: CLIArgs.Start) Command.Start {
             .{},
         );
     }
+    const shadower_count = start.shadower_count orelse 0;
+    if (start.shadower_count) |count| {
+        if (count == 0) {
+            vsr.fatal(.cli, "--shadower-count: value needs to be greater than zero", .{});
+        }
+        if (count > constants.standbys_max) {
+            vsr.fatal(.cli, "--shadower-count: value is too large ({}), at most {} is allowed", .{
+                count,
+                constants.standbys_max,
+            });
+        }
+        if (addresses.const_slice().len + count > constants.members_max) {
+            vsr.fatal(
+                .cli,
+                "--shadower-count: --addresses count ({}) + --shadower-count ({}) " ++
+                    "exceeds maximum member count ({})",
+                .{ addresses.const_slice().len, count, constants.members_max },
+            );
+        }
+        if (std.mem.eql(u8, start.addresses, "0")) {
+            vsr.fatal(
+                .cli,
+                "--shadower-count requires --addresses to be a real address list",
+                .{},
+            );
+        }
+    }
 
     return .{
         .addresses = addresses,
@@ -1125,7 +1152,7 @@ fn parse_args_start(start: CLIArgs.Start) Command.Start {
                 Command.Addresses,
             );
         } else null,
-        .shadower_count = start.shadower_count orelse 0,
+        .shadower_count = shadower_count,
         .aof_file = aof_file,
         .aof_recovery = start.aof_recovery,
         .path = start.path,
@@ -1427,6 +1454,7 @@ fn parse_addresses(
         error.AddressHasMoreThanOneColon => {
             vsr.fatal(.cli, flag ++ ": invalid address with more than one colon", .{});
         },
+        error.AddressDuplicate => vsr.fatal(.cli, flag ++ ": duplicate address", .{}),
         error.PortOverflow => vsr.fatal(.cli, flag ++ ": port exceeds 65535", .{}),
         error.PortInvalid => vsr.fatal(.cli, flag ++ ": invalid port", .{}),
         error.AddressInvalid => vsr.fatal(.cli, flag ++ ": invalid IPv4 or IPv6 address", .{}),
