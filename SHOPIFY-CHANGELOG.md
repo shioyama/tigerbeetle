@@ -28,6 +28,12 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   while the integration shard runs the remaining integration tests through the
   existing stderr-filtered `zig build ci -- integration` wrapper.
 
+- [#155](https://github.com/shop/tigerbeetle/pull/155)
+
+  Teach `tidy shopify fork` to reject newly added `SHOPIFY-CHANGELOG.md`
+  entries unless they are placed under the `(unreleased)` release header, while
+  allowing release PRs to finalize that header without moving entries.
+
 ## TigerBeetle 0.17.2-shopify2
 
 Released: 2026-06-08
