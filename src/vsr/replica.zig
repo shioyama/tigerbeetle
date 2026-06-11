@@ -2168,8 +2168,12 @@ pub fn ReplicaType(
                     (self.status == .normal and
                         message.header.view == self.view and message.header.op <= self.op))
                 {
-                    log.debug("{}: on_prepare: ignoring (repair)", .{self.log_prefix()});
-                    self.on_repair(message);
+                    // Do not call on_repair(): repair may write the prepare,
+                    // but rollback shadowers must not persist upgrade prepares.
+                    log.debug(
+                        "{}: on_prepare: ignoring upgrade repair (shadower)",
+                        .{self.log_prefix()},
+                    );
                     return;
                 }
 
