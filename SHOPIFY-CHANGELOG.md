@@ -14,6 +14,13 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   restarted shadow cluster try to execute the upgraded release. Add integration
   coverage for restarting shadow datafiles after source-cluster in-place upgrade.
 
+- [#161](https://github.com/shop/tigerbeetle/pull/161)
+
+  Skip repair writes for shadowed upgrade prepares that are already stale or
+  known locally. Stale upgrade prepares should not spuriously stop a shadower,
+  but `on_repair()` may persist prepares, and rollback shadowers must not retain
+  source-cluster upgrade operations.
+
 ## TigerBeetle 0.17.3-shopify1
 
 Released: 2026-06-09
