@@ -1551,7 +1551,7 @@ test "Cluster: upgrade: R=1" {
     try mark.expect_hit();
 }
 
-test "Cluster: upgrade: shadower shutdown after upgrade checkpoint" {
+test "Cluster: upgrade: shadower shutdown on upgrade prepares" {
     const t = try TestContext.init(.{ .replica_count = 3, .standby_count = 1 });
     defer t.deinit();
 
@@ -1571,7 +1571,7 @@ test "Cluster: upgrade: shadower shutdown after upgrade checkpoint" {
     try expectEqual(t.replica(.S0).storage_checkpoint_release(), 10);
 }
 
-test "Cluster: upgrade: shadower shutdown checkpoint reopens" {
+test "Cluster: upgrade: shadower shutdown on upgrade prepares reopens" {
     const t = try TestContext.init(.{ .replica_count = 3, .standby_count = 1 });
     defer t.deinit();
 
@@ -1601,10 +1601,11 @@ test "Cluster: upgrade: shadower shutdown checkpoint reopens" {
     try expect(t.replica(.S0).state_machine_opened());
     try expectEqual(t.cluster.replicas[shadower_index].release.triple().patch, 10);
     try expectEqual(t.replica(.S0).storage_checkpoint_release(), 10);
-    try expectEqual(t.replica(.S0).op_checkpoint(), checkpoint_1);
+    try expectEqual(t.replica(.S0).op_checkpoint(), 0);
 }
 
 test "Cluster: upgrade: shadower shutdown after state sync across upgrade" {
+    const mark = marks.check("shadower shutdown for state sync");
     const t = try TestContext.init(.{ .replica_count = 3, .standby_count = 1 });
     defer t.deinit();
 
@@ -1629,7 +1630,22 @@ test "Cluster: upgrade: shadower shutdown after state sync across upgrade" {
     t.replica(.S0).pass_all(.__, .bidirectional);
     t.run();
 
+    try mark.expect_hit();
     try expect(t.cluster.replicas[shadower_index].shadower_must_shutdown());
+    try expectEqual(t.cluster.replicas[shadower_index].release.triple().patch, 10);
+    try expectEqual(t.replica(.S0).storage_checkpoint_release(), 10);
+
+    // Reopen without the shadower flag to verify that rejecting the upgraded
+    // checkpoint left a valid rollback datafile.
+    t.replica(.S0).drop_all(.__, .bidirectional);
+    t.replica(.S0).stop();
+    try t.replica(.S0).open();
+    t.run();
+
+    try expectEqual(t.replica(.S0).health(), .up);
+    try expect(!t.cluster.replicas[shadower_index].shadower);
+    try expect(!t.cluster.replicas[shadower_index].shadower_must_shutdown());
+    try expect(t.replica(.S0).state_machine_opened());
     try expectEqual(t.cluster.replicas[shadower_index].release.triple().patch, 10);
     try expectEqual(t.replica(.S0).storage_checkpoint_release(), 10);
 }

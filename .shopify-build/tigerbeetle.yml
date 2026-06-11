@@ -131,6 +131,27 @@ steps:
     run:
       - sh .shopify-build/fetch-upstream-tags.sh
       - ./.zig-install/zig build ci -- integration
+  - label: ':last_quarter_moon: Shadow tests'
+    timeout: 20m
+    env:
+      SHOPIFY_BUILD_MEMORY_LIMIT: 15g
+      TERM: dumb
+      COLOR: "1"
+    git:
+      history: full
+    cache:
+      - path: .zig-install
+        digest:
+          - zig/download.sh
+        upload: false
+      - path: .fork-bins
+        digest:
+          - .shopify-build/fork-versions.txt
+          - .shopify-build/fetch-fork-binaries.sh
+        upload: false
+    run:
+      - sh .shopify-build/fetch-upstream-tags.sh
+      - ./.zig-install/zig build ci -- shadow
   - label: ':bug: Fuzz'
     timeout: 10m
     git:

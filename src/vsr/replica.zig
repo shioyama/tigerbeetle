@@ -262,16 +262,11 @@ pub fn ReplicaType(
         replica: u8,
 
         // [shopify] True when this replica is shadowing another cluster as a standby.
-        // Shadowers must not advance `checkpoint.release` past an upgrade bar: instead,
-        // `release_for_next_checkpoint` returns the current release and the process shuts
-        // down after the shutdown checkpoint is durable.
+        // Shadowers must not persist source-cluster upgrade state; instead, the process
+        // shuts down so operators can restart the datafile explicitly as a rollback cluster.
         shadower: bool,
-        // [shopify] A shadower shutdown checkpoint has been submitted and is awaiting
-        // durability.
-        shadower_shutdown_checkpoint_pending: bool = false,
         // [shopify] The shadower should exit so an operator can restart the datafile
-        // explicitly as its own rollback cluster. Set after the shutdown checkpoint is
-        // durable, or when state sync would otherwise install an upgraded checkpoint.
+        // explicitly as its own rollback cluster.
         shadower_shutdown_required: bool = false,
 
         /// Runtime upper-bound number of requests in the pipeline.
@@ -1070,13 +1065,6 @@ pub fn ReplicaType(
             return self.shadower_shutdown_required;
         }
 
-        fn shadower_shutdown_checkpoint_finish(self: *Replica) void {
-            assert(self.shadower);
-            assert(self.shadower_shutdown_checkpoint_pending);
-            self.shadower_shutdown_checkpoint_pending = false;
-            self.shadower_shutdown_required = true;
-        }
-
         fn journal_recover_callback(journal: *Journal) void {
             const self: *Replica = @alignCast(@fieldParentPtr("journal", journal));
             assert(!self.opened);
@@ -1432,7 +1420,6 @@ pub fn ReplicaType(
                 .replica = replica_index,
                 // [shopify]
                 .shadower = options.shadower,
-                .shadower_shutdown_checkpoint_pending = false,
                 .shadower_shutdown_required = false,
                 .pipeline_request_queue_limit = options.pipeline_requests_limit,
                 .request_size_limit = request_size_limit,
@@ -2158,13 +2145,48 @@ pub fn ReplicaType(
             assert(message.header.replica < self.replica_count);
             assert(message.header.operation != .reserved);
 
-            // [shopify] Once a shadower has crossed the source cluster's upgrade bar,
-            // the local datafile is a rollback artifact. Do not accept or forward any
+            // [shopify] Once shutdown is required, do not accept or forward any
             // more prepares from the upgraded source while waiting to shut down.
-            if (self.shadower_shutdown_checkpoint_pending or
-                self.shadower_shutdown_required)
-            {
+            if (self.shadower_shutdown_required) {
                 log.debug("{}: on_prepare: ignoring (shadower shutdown)", .{self.log_prefix()});
+                return;
+            }
+
+            // [shopify] Once a shadower sees the source cluster's upgrade bar,
+            // the local datafile is a rollback artifact. Do not persist upgrade
+            // prepares: if they remain replayable, restarting the shadow as a
+            // standalone cluster would attempt to upgrade with the old binary.
+            // Match the upstream stale/repair filters first so a delayed upgrade
+            // prepare from a truncated view does not spuriously stop the shadower.
+            if (self.shadower and message.header.operation == .upgrade) {
+                if (self.syncing == .updating_checkpoint) {
+                    log.warn("{}: on_prepare: ignoring (sync)", .{self.log_prefix()});
+                    return;
+                }
+
+                if (message.header.view < self.view or
+                    (self.status == .normal and
+                        message.header.view == self.view and message.header.op <= self.op))
+                {
+                    log.debug("{}: on_prepare: ignoring (repair)", .{self.log_prefix()});
+                    self.on_repair(message);
+                    return;
+                }
+
+                if (self.status != .normal) {
+                    log.warn("{}: on_prepare: ignoring ({})", .{
+                        self.log_prefix(),
+                        self.status,
+                    });
+                    return;
+                }
+
+                if (message.header.view > self.view) {
+                    log.warn("{}: on_prepare: ignoring (newer view)", .{self.log_prefix()});
+                    return;
+                }
+
+                assert(self.shadower_shutdown_for_upgrade_prepare(message.header));
                 return;
             }
 
@@ -2526,9 +2548,7 @@ pub fn ReplicaType(
 
             // [shopify] The shadower is shutting down as a rollback artifact; ignore
             // further commit watermarks from the upgraded source cluster.
-            if (self.shadower_shutdown_checkpoint_pending or
-                self.shadower_shutdown_required)
-            {
+            if (self.shadower_shutdown_required) {
                 log.debug("{}: on_commit: ignoring (shadower shutdown)", .{self.log_prefix()});
                 return;
             }
@@ -2944,6 +2964,13 @@ pub fn ReplicaType(
                 return;
             }
 
+            // [shopify] Reject Views that would install upgrade prepares into a
+            // shadower rollback datafile. Do this before transitioning to the
+            // View's view so shutdown leaves the datafile as close as possible
+            // to the last non-upgrade source state, but after ignoring old Views
+            // that could contain upgrade prepares from a truncated log suffix.
+            if (self.shadower_shutdown_for_upgrade_view(message)) return;
+
             if (self.status == .recovering_head) {
                 assert(message.header.view >= self.view);
                 self.view = message.header.view;
@@ -3052,17 +3079,48 @@ pub fn ReplicaType(
             return true;
         }
 
-        // [shopify] A shadower must remain on its current release. If it is far
-        // enough behind that it would need to state-sync to a checkpoint from the
-        // upgraded source cluster, shut down instead of installing that checkpoint
-        // and attempting a release transition.
+        // [shopify] A shadower must remain on its current release. If it sees
+        // the source cluster's upgrade bar, shut down before persisting those
+        // upgrade prepares. Otherwise restarting the shadow datafile as a
+        // standalone rollback cluster would replay the bar and attempt to
+        // upgrade with the old binary.
+        fn shadower_shutdown_for_upgrade_prepare(
+            self: *Replica,
+            header: *const Header.Prepare,
+        ) bool {
+            if (!self.shadower) return false;
+            if (header.operation != .upgrade) return false;
+            self.shadower_shutdown_required = true;
+            return true;
+        }
+
+        fn shadower_shutdown_for_upgrade_view(
+            self: *Replica,
+            message: *const Message.View,
+        ) bool {
+            if (!self.shadower) return false;
+            for (view_message_headers(message)) |*header| {
+                if (header.operation == .upgrade) {
+                    self.shadower_shutdown_required = true;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // [shopify] If a shadower is far enough behind that it would need to
+        // state-sync to a checkpoint from the upgraded source cluster, shut down
+        // instead of installing that checkpoint and attempting a release transition.
         fn shadower_shutdown_for_state_sync(
             self: *Replica,
             view_checkpoint: *const vsr.CheckpointState,
         ) bool {
             if (!self.shadower) return false;
             if (view_checkpoint.release.value <= self.release.value) return false;
-            assert(!self.shadower_shutdown_checkpoint_pending);
+            log.mark.debug(
+                "{}: shadower shutdown for state sync checkpoint_release={} replica_release={}",
+                .{ self.log_prefix(), view_checkpoint.release, self.release },
+            );
             self.shadower_shutdown_required = true;
             return true;
         }
@@ -5339,10 +5397,6 @@ pub fn ReplicaType(
                 self.log_view_durable(),
                 self.log_view,
             });
-            assert(!self.shadower_shutdown_checkpoint_pending);
-            const shadower_shutdown_checkpoint = self.shutdown_for_next_checkpoint();
-            self.shadower_shutdown_checkpoint_pending = shadower_shutdown_checkpoint;
-
             // [shopify] Only set the skip flag if the WAL is already locally clean. Runtime
             // upgrade is an exec boundary, so any in-flight WAL repair/append would otherwise be
             // skipped by the new binary's header-only recovery path.
@@ -5436,18 +5490,6 @@ pub fn ReplicaType(
             );
 
             self.grid.assert_only_repairing();
-
-            // [shopify] A shadower that suppresses an upgrade-bar release advance is now
-            // a rollback artifact. Stop after this durable checkpoint so operators can
-            // restart it explicitly as its own cluster, rather than continuing to shadow
-            // the upgraded source cluster.
-            if (self.shadower_shutdown_checkpoint_pending) {
-                // Intentionally do not resume the commit pipeline. The old shadower is
-                // now a rollback artifact, and continuing could let it process prepares
-                // from the upgraded source cluster before the server loop exits.
-                self.shadower_shutdown_checkpoint_finish();
-                return;
-            }
 
             // Mark the current checkpoint as not durable, then release the blocks acquired for the
             // ClientSessions and FreeSet checkpoints (to be freed when the *next* checkpoint
@@ -11098,11 +11140,7 @@ pub fn ReplicaType(
             }
 
             if (!self.upgrade_bar_for_next_checkpoint()) return self.release;
-            // [shopify] Shadowers do not advance `checkpoint.release` past an upgrade
-            // bar — the cluster they are shadowing has upgraded, but the shadower itself
-            // must remain on its own release. The advance is blocked here, and the
-            // process shuts down after the shutdown checkpoint is durable.
-            if (self.shadower) return self.release;
+            assert(!self.shadower);
             return self.upgrade_release.?;
         }
 
@@ -11134,15 +11172,6 @@ pub fn ReplicaType(
             assert(found_upgrade == constants.lsm_compaction_ops);
             assert(self.upgrade_release != null);
             return true;
-        }
-
-        // [shopify] True iff `release_for_next_checkpoint` would have returned
-        // `self.upgrade_release` but for the shadower interception. Read by
-        // `commit_checkpoint_superblock` to shut down after the checkpoint is durable.
-        fn shutdown_for_next_checkpoint(self: *const Replica) bool {
-            if (!self.shadower) return false;
-            if (self.commit_min < self.op_checkpoint_next_trigger()) return false;
-            return self.upgrade_bar_for_next_checkpoint();
         }
 
         /// Whether it is safe to commit or send prepare_ok messages.
