@@ -27,6 +27,8 @@ const release_client_min = "0.16.4";
 const ShopifyIntegrationShard = struct {
     skip_upgrade: bool = false,
     upgrade_only: bool = false,
+    skip_shadow: bool = false,
+    shadow_only: bool = false,
 };
 
 // TigerBeetle binary requires certain CPU feature and supports a closed set of CPUs. Here, we
@@ -184,6 +186,16 @@ pub fn build(b: *std.Build) !void {
             "shopify-integration-upgrade-only",
             "Run only the slow in-place upgrade integration test.",
         ) orelse false,
+        .shopify_integration_skip_shadow = b.option(
+            bool,
+            "shopify-integration-skip-shadow",
+            "Skip the slow shadow rollback integration tests.",
+        ) orelse false,
+        .shopify_integration_shadow_only = b.option(
+            bool,
+            "shopify-integration-shadow-only",
+            "Run only the slow shadow rollback integration tests.",
+        ) orelse false,
     };
 
     if (build_options.config_release == null and build_options.config_release_client_min != null) {
@@ -198,6 +210,16 @@ pub fn build(b: *std.Build) !void {
         build_options.shopify_integration_upgrade_only)
     {
         @panic("cannot both skip and exclusively run integration upgrade tests");
+    }
+    if (build_options.shopify_integration_skip_shadow and
+        build_options.shopify_integration_shadow_only)
+    {
+        @panic("cannot both skip and exclusively run integration shadow tests");
+    }
+    if (build_options.shopify_integration_upgrade_only and
+        build_options.shopify_integration_shadow_only)
+    {
+        @panic("cannot exclusively run both integration upgrade and shadow tests");
     }
 
     const target = try resolve_target(b, build_options.target);
@@ -365,6 +387,8 @@ pub fn build(b: *std.Build) !void {
         // [shopify]
         .shopify_integration_skip_upgrade = build_options.shopify_integration_skip_upgrade,
         .shopify_integration_upgrade_only = build_options.shopify_integration_upgrade_only,
+        .shopify_integration_skip_shadow = build_options.shopify_integration_skip_shadow,
+        .shopify_integration_shadow_only = build_options.shopify_integration_shadow_only,
     });
 
     // zig build test:jni
@@ -546,8 +570,9 @@ fn build_ci(
     const CIMode = enum {
         smoke, // Quickly check formatting and such.
         @"test", // Main test suite + VOPR + fuzzers, excluding clients.
-        integration, // [shopify] Dedicated non-upgrade integration tests.
+        integration, // [shopify] Dedicated non-upgrade/non-shadow integration tests.
         upgrade, // [shopify] Slow upgrade integration test shard.
+        shadow, // [shopify] Slow shadow rollback integration test shard.
         aof, // Dedicated test for AOF, which is somewhat slow to run.
 
         clients, // Tests for all language clients below.
@@ -609,8 +634,9 @@ fn build_ci(
     // [shopify] Buildkite splits integration tests into their own step; keep
     // verbose test-runner progress while hiding expected Vortex/replica noise.
     const integration_shard: ?ShopifyIntegrationShard = switch (mode) {
-        .integration => .{ .skip_upgrade = true },
+        .integration => .{ .skip_upgrade = true, .skip_shadow = true },
         .upgrade => .{ .upgrade_only = true },
+        .shadow => .{ .shadow_only = true },
         else => null,
     };
     if (integration_shard) |shard| {
@@ -684,6 +710,12 @@ fn build_ci_step_integration(
     }
     if (shard.upgrade_only) {
         argv.append("-Dshopify-integration-upgrade-only=true") catch @panic("OOM");
+    }
+    if (shard.skip_shadow) {
+        argv.append("-Dshopify-integration-skip-shadow=true") catch @panic("OOM");
+    }
+    if (shard.shadow_only) {
+        argv.append("-Dshopify-integration-shadow-only=true") catch @panic("OOM");
     }
     argv.append("test:integration") catch @panic("OOM");
 
@@ -1051,6 +1083,8 @@ fn build_test(
         vortex_options: *std.Build.Step.Options,
         shopify_integration_skip_upgrade: bool, // [shopify]
         shopify_integration_upgrade_only: bool, // [shopify]
+        shopify_integration_skip_shadow: bool, // [shopify]
+        shopify_integration_shadow_only: bool, // [shopify]
     },
 ) !void {
     const test_options = b.addOptions();
@@ -1164,6 +1198,8 @@ fn build_test(
         .vortex_options = options.vortex_options,
         .shopify_integration_skip_upgrade = options.shopify_integration_skip_upgrade,
         .shopify_integration_upgrade_only = options.shopify_integration_upgrade_only,
+        .shopify_integration_skip_shadow = options.shopify_integration_skip_shadow,
+        .shopify_integration_shadow_only = options.shopify_integration_shadow_only,
     });
 
     const run_fmt = b.addFmt(.{ .paths = &.{"."}, .check = true });
@@ -1196,6 +1232,8 @@ fn build_test_integration(
         vortex_options: *std.Build.Step.Options,
         shopify_integration_skip_upgrade: bool, // [shopify]
         shopify_integration_upgrade_only: bool, // [shopify]
+        shopify_integration_skip_shadow: bool, // [shopify]
+        shopify_integration_shadow_only: bool, // [shopify]
     },
 ) void {
     const vortex = build_vortex_executable(b, .{
@@ -1221,9 +1259,16 @@ fn build_test_integration(
         "shopify_integration_skip_upgrade",
         options.shopify_integration_skip_upgrade,
     );
+    integration_tests_options.addOption(
+        bool,
+        "shopify_integration_skip_shadow",
+        options.shopify_integration_skip_shadow,
+    );
     const integration_test_filters: []const []const u8 =
         if (options.shopify_integration_upgrade_only)
             &.{"in-place upgrade"}
+        else if (options.shopify_integration_shadow_only)
+            &.{"shadow"}
         else
             b.args orelse &.{};
 
@@ -1249,6 +1294,10 @@ fn build_test_integration(
     steps.test_integration_build.dependOn(&b.addInstallArtifact(integration_tests, .{}).step);
 
     const run_integration_tests = b.addRunArtifact(integration_tests);
+    // [shopify] Integration failures can emit substantial diagnostic stderr from
+    // child TigerBeetle processes. Keep enough output for CI logs to show the
+    // underlying failure instead of failing the runner with StderrStreamTooLong.
+    run_integration_tests.max_stdio_size = 512 * 1024 * 1024;
     if (b.args != null) { // Don't cache test results if running a specific test.
         run_integration_tests.has_side_effects = true;
     }

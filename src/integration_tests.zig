@@ -25,6 +25,8 @@ const tigerbeetle: []const u8 = @import("test_options").tigerbeetle_exe;
 const tigerbeetle_next: []const u8 = @import("test_options").tigerbeetle_next_exe;
 const shopify_integration_skip_upgrade: bool =
     @import("test_options").shopify_integration_skip_upgrade;
+const shopify_integration_skip_shadow: bool =
+    @import("test_options").shopify_integration_skip_shadow;
 
 comptime {
     _ = @import("clients/c/tb_client_header_test.zig");
@@ -512,7 +514,105 @@ test "vortex smoke" {
 }
 
 // [shopify] Shadow-cluster integration tests.
+const shadow_start_options =
+    " --cache-grid=64MiB" ++
+    " --memory-lsm-manifest=8MiB" ++
+    " --memory-lsm-compaction=10752KiB" ++
+    " --cache-accounts=1MiB";
+
+const ShadowTest = struct {
+    fn kill_wait(process_maybe: *?std.process.Child) void {
+        if (process_maybe.*) |*process| {
+            _ = process.kill() catch {};
+            _ = process.wait() catch {};
+            process_maybe.* = null;
+        }
+    }
+
+    fn kill_all(processes: []?std.process.Child) void {
+        for (processes) |*process| kill_wait(process);
+    }
+
+    fn expect_running(process_maybe: *?std.process.Child) !void {
+        const ret = std.posix.waitpid(process_maybe.*.?.id, std.posix.W.NOHANG);
+        if (ret.pid != 0) {
+            process_maybe.* = null;
+            return error.ShadowCrashed;
+        }
+    }
+
+    fn poll_clean_exits(processes: []?std.process.Child) !bool {
+        var all_exited = true;
+        for (processes) |*process_maybe| {
+            if (process_maybe.* == null) continue;
+            const ret = std.posix.waitpid(process_maybe.*.?.id, std.posix.W.NOHANG);
+            if (ret.pid == 0) {
+                all_exited = false;
+                continue;
+            }
+            process_maybe.* = null;
+            try std.testing.expectEqual(
+                std.process.Child.Term{ .Exited = 0 },
+                stdx.term_from_status(ret.status),
+            );
+        }
+        return all_exited;
+    }
+
+    fn wait_for_cluster(shell: *Shell, executable: []const u8, address: []const u8) !void {
+        for (0..240) |_| {
+            const result = try shell.exec_raw(
+                "{tigerbeetle} repl --cluster=0 --addresses={address}" ++
+                    " --command={command}",
+                .{
+                    .tigerbeetle = executable,
+                    .address = address,
+                    .command = "lookup_accounts id=0",
+                },
+            );
+            if (std.mem.indexOf(u8, result.stderr, "connected to=0") != null) return;
+            std.time.sleep(250 * std.time.ns_per_ms);
+        }
+
+        const result = try shell.exec_raw(
+            "{tigerbeetle} repl --cluster=0 --addresses={address}" ++
+                " --command={command}",
+            .{
+                .tigerbeetle = executable,
+                .address = address,
+                .command = "lookup_accounts id=0",
+            },
+        );
+        std.debug.print(
+            "cluster did not start: executable={s} address={s} term={}\n" ++
+                "stdout:\n{s}\n" ++
+                "stderr:\n{s}\n",
+            .{ executable, address, result.term, result.stdout, result.stderr },
+        );
+        return error.ClusterDidNotStart;
+    }
+
+    fn repl(
+        shell: *Shell,
+        executable: []const u8,
+        address: []const u8,
+        command: []const u8,
+    ) ![]const u8 {
+        return try shell.exec_stdout(
+            "{tigerbeetle} repl --cluster=0 --addresses={address}" ++
+                " --command={command}",
+            .{
+                .tigerbeetle = executable,
+                .address = address,
+                .command = command,
+            },
+        );
+    }
+};
+
 test "shadow cluster" {
+    if (shopify_integration_skip_shadow) return error.SkipZigTest;
+
     // Test that a replica can start in shadow mode, connect to a running
     // primary cluster as a standby, and sync up to the primary's state.
     //
@@ -643,6 +743,7 @@ test "shadow cluster" {
 }
 
 test "shadow shutdown-on-upgrade exits cleanly" {
+    if (shopify_integration_skip_shadow) return error.SkipZigTest;
     if (builtin.target.os.tag != .linux) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
@@ -659,85 +760,75 @@ test "shadow shutdown-on-upgrade exits cleanly" {
 
     try shell.cwd.makePath(tmp);
 
+    const source_executable = try shell.fmt("{s}/tigerbeetle-source", .{tmp});
+    const shadow_executable = try shell.fmt("{s}/tigerbeetle-shadow", .{tmp});
+    try shell.cwd.copyFile(tigerbeetle, shell.cwd, source_executable, .{});
+    try shell.cwd.copyFile(tigerbeetle, shell.cwd, shadow_executable, .{});
+
     const source_datafile = try shell.fmt("{s}/source_0_0.tigerbeetle", .{tmp});
     const shadow_datafile = try shell.fmt("{s}/shadow_0_0.tigerbeetle", .{tmp});
 
-    const Context = struct {
-        fn kill_wait(process_maybe: *?std.process.Child) void {
-            if (process_maybe.*) |*process| {
-                _ = process.kill() catch {};
-                _ = process.wait() catch {};
-                process_maybe.* = null;
-            }
-        }
-
-        fn wait_for_cluster(shell_: *Shell, executable: []const u8, address: []const u8) !void {
-            for (0..20) |_| {
-                const result = try shell_.exec_raw(
-                    "{tigerbeetle} repl --cluster=0 --addresses={address}" ++
-                        " --command={command}",
-                    .{
-                        .tigerbeetle = executable,
-                        .address = address,
-                        .command = "lookup_accounts id=0",
-                    },
-                );
-                if (std.mem.indexOf(u8, result.stderr, "connected to=0") != null) return;
-                std.time.sleep(250 * std.time.ns_per_ms);
-            }
-            return error.ClusterDidNotStart;
-        }
-    };
-
     try shell.exec(
         "{tigerbeetle} format --cluster=0 --replica=0 --replica-count=1 {datafile}",
-        .{ .tigerbeetle = tigerbeetle, .datafile = source_datafile },
+        .{ .tigerbeetle = source_executable, .datafile = source_datafile },
     );
 
-    try shell.cwd.copyFile(source_datafile, shell.cwd, shadow_datafile, .{});
-
     var source_process: ?std.process.Child = try shell.spawn(
-        .{},
+        .{ .stderr_behavior = .Inherit },
         "{tigerbeetle} start --experimental" ++
+            shadow_start_options ++
             " --shadower-count=1 --addresses={address} {datafile}",
         .{
-            .tigerbeetle = tigerbeetle,
+            .tigerbeetle = source_executable,
             .address = source_address,
             .datafile = source_datafile,
         },
     );
-    defer Context.kill_wait(&source_process);
+    defer ShadowTest.kill_wait(&source_process);
 
-    try Context.wait_for_cluster(shell, tigerbeetle, source_address);
+    try ShadowTest.wait_for_cluster(shell, source_executable, source_address);
+
+    _ = try ShadowTest.repl(
+        shell,
+        source_executable,
+        source_address,
+        "create_accounts id=1 code=10 ledger=700, id=2 code=10 ledger=700",
+    );
+    _ = try ShadowTest.repl(
+        shell,
+        source_executable,
+        source_address,
+        "create_transfers id=1" ++
+            " debit_account_id=1 credit_account_id=2" ++
+            " amount=100 ledger=700 code=10",
+    );
+
+    try shell.cwd.copyFile(source_datafile, shell.cwd, shadow_datafile, .{});
 
     var shadow_process: ?std.process.Child = try shell.spawn(
-        .{},
+        .{ .stderr_behavior = .Inherit },
         "{tigerbeetle} start --experimental" ++
+            shadow_start_options ++
             " --addresses={shadow_address}" ++
             " --shadow={source_address} {datafile}",
         .{
-            .tigerbeetle = tigerbeetle,
+            .tigerbeetle = shadow_executable,
             .shadow_address = shadow_address,
             .source_address = source_address,
             .datafile = shadow_datafile,
         },
     );
-    defer Context.kill_wait(&shadow_process);
+    defer ShadowTest.kill_wait(&shadow_process);
 
-    std.time.sleep(std.time.ns_per_s);
-    Context.kill_wait(&source_process);
-    source_process = try shell.spawn(
-        .{},
-        "{tigerbeetle} start --experimental" ++
-            " --shadower-count=1 --addresses={address} {datafile}",
-        .{
-            .tigerbeetle = tigerbeetle_next,
-            .address = source_address,
-            .datafile = source_datafile,
-        },
-    );
-    try Context.wait_for_cluster(shell, tigerbeetle, source_address);
+    std.time.sleep(2 * std.time.ns_per_s);
 
+    // Replace the source node's binary in-place. `tigerbeetle_next` is a
+    // multiversion binary that bundles `tigerbeetle`, so the running source
+    // process should notice this path changed and exec into the new release.
+    try shell.cwd.copyFile(tigerbeetle_next, shell.cwd, source_executable, .{});
+    try ShadowTest.wait_for_cluster(shell, source_executable, source_address);
+
+    var shadow_exited = false;
     for (0..120) |_| {
         const ret = std.posix.waitpid(shadow_process.?.id, std.posix.W.NOHANG);
         if (ret.pid != 0) {
@@ -746,14 +837,200 @@ test "shadow shutdown-on-upgrade exits cleanly" {
                 std.process.Child.Term{ .Exited = 0 },
                 stdx.term_from_status(ret.status),
             );
-            return;
+            shadow_exited = true;
+            break;
         }
         std.time.sleep(250 * std.time.ns_per_ms);
     }
-    return error.ShadowDidNotExit;
+    if (!shadow_exited) return error.ShadowDidNotExit;
+
+    var recovered_shadow_process: ?std.process.Child = try shell.spawn(
+        .{ .stderr_behavior = .Inherit },
+        "{tigerbeetle} start --experimental" ++
+            shadow_start_options ++
+            " --addresses={address} {datafile}",
+        .{
+            .tigerbeetle = shadow_executable,
+            .address = shadow_address,
+            .datafile = shadow_datafile,
+        },
+    );
+    defer ShadowTest.kill_wait(&recovered_shadow_process);
+
+    try ShadowTest.wait_for_cluster(shell, shadow_executable, shadow_address);
+    const lookup = try ShadowTest.repl(
+        shell,
+        shadow_executable,
+        shadow_address,
+        "lookup_accounts id=1, id=2",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, lookup, "\"id\": \"1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, lookup, "\"id\": \"2\"") != null);
+}
+
+test "shadow shutdown-on-upgrade restarts as multi-replica cluster" {
+    if (shopify_integration_skip_shadow) return error.SkipZigTest;
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
+
+    const gpa = std.testing.allocator;
+    const shell = try Shell.create(gpa);
+    defer shell.destroy();
+
+    const replica_count = 3;
+    const source_addresses = "127.0.0.1:7240,127.0.0.1:7241,127.0.0.1:7242";
+    const shadow_addresses = "127.0.0.1:7250,127.0.0.1:7251,127.0.0.1:7252";
+    const tmp = try shell.fmt(
+        "./.zig-cache/tmp/{}",
+        .{std.crypto.random.int(u64)},
+    );
+    defer shell.cwd.deleteTree(tmp) catch {};
+
+    try shell.cwd.makePath(tmp);
+
+    var source_executables: [replica_count][]const u8 = undefined;
+    for (0..replica_count) |replica| {
+        source_executables[replica] = try shell.fmt(
+            "{s}/tigerbeetle-source-{}",
+            .{ tmp, replica },
+        );
+        try shell.cwd.copyFile(tigerbeetle, shell.cwd, source_executables[replica], .{});
+    }
+    const shadow_executable = try shell.fmt("{s}/tigerbeetle-shadow", .{tmp});
+    try shell.cwd.copyFile(tigerbeetle, shell.cwd, shadow_executable, .{});
+
+    var source_datafiles: [replica_count][]const u8 = undefined;
+    var shadow_datafiles: [replica_count][]const u8 = undefined;
+    var source_processes: [replica_count]?std.process.Child = @splat(null);
+    var shadow_processes: [replica_count]?std.process.Child = @splat(null);
+    var recovered_shadow_processes: [replica_count]?std.process.Child = @splat(null);
+    defer ShadowTest.kill_all(&source_processes);
+    defer ShadowTest.kill_all(&shadow_processes);
+    defer ShadowTest.kill_all(&recovered_shadow_processes);
+
+    for (0..replica_count) |replica| {
+        source_datafiles[replica] = try shell.fmt(
+            "{s}/source_{}.tigerbeetle",
+            .{ tmp, replica },
+        );
+        shadow_datafiles[replica] = try shell.fmt(
+            "{s}/shadow_{}.tigerbeetle",
+            .{ tmp, replica },
+        );
+        try shell.exec(
+            "{tigerbeetle} format --cluster=0 --replica={replica}" ++
+                " --replica-count={replica_count} {datafile}",
+            .{
+                .tigerbeetle = source_executables[replica],
+                .replica = replica,
+                .replica_count = replica_count,
+                .datafile = source_datafiles[replica],
+            },
+        );
+    }
+
+    for (0..replica_count) |replica| {
+        source_processes[replica] = try shell.spawn(
+            .{ .stderr_behavior = .Inherit },
+            "{tigerbeetle} start --experimental" ++
+                shadow_start_options ++
+                " --shadower-count={shadower_count}" ++
+                " --addresses={addresses} {datafile}",
+            .{
+                .tigerbeetle = source_executables[replica],
+                .shadower_count = replica_count,
+                .addresses = source_addresses,
+                .datafile = source_datafiles[replica],
+            },
+        );
+    }
+    try ShadowTest.wait_for_cluster(shell, source_executables[0], source_addresses);
+
+    _ = try ShadowTest.repl(
+        shell,
+        source_executables[0],
+        source_addresses,
+        "create_accounts id=1 code=10 ledger=700, id=2 code=10 ledger=700",
+    );
+    _ = try ShadowTest.repl(
+        shell,
+        source_executables[0],
+        source_addresses,
+        "create_transfers id=1" ++
+            " debit_account_id=1 credit_account_id=2" ++
+            " amount=100 ledger=700 code=10",
+    );
+
+    for (0..replica_count) |replica| {
+        try shell.cwd.copyFile(
+            source_datafiles[replica],
+            shell.cwd,
+            shadow_datafiles[replica],
+            .{},
+        );
+    }
+
+    for (0..replica_count) |replica| {
+        shadow_processes[replica] = try shell.spawn(
+            .{ .stderr_behavior = .Inherit },
+            "{tigerbeetle} start --experimental" ++
+                shadow_start_options ++
+                " --addresses={shadow_addresses}" ++
+                " --shadow={source_addresses} {datafile}",
+            .{
+                .tigerbeetle = shadow_executable,
+                .shadow_addresses = shadow_addresses,
+                .source_addresses = source_addresses,
+                .datafile = shadow_datafiles[replica],
+            },
+        );
+    }
+
+    // CI workers can take much longer than local machines to open the shadow
+    // replicas and establish outbound standby connections to the source cluster.
+    std.time.sleep(60 * std.time.ns_per_s);
+    for (&shadow_processes) |*shadow_process| try ShadowTest.expect_running(shadow_process);
+
+    // Replace each source replica's binary in-place, matching Vortex's
+    // replica_install() pattern: every replica has its own executable target,
+    // and the cluster keeps running between installs.
+    for (source_executables) |source_executable| {
+        try shell.cwd.copyFile(tigerbeetle_next, shell.cwd, source_executable, .{});
+        try ShadowTest.wait_for_cluster(shell, source_executables[0], source_addresses);
+    }
+
+    for (0..1200) |_| {
+        if (try ShadowTest.poll_clean_exits(&shadow_processes)) break;
+        std.time.sleep(250 * std.time.ns_per_ms);
+    } else return error.ShadowDidNotExit;
+
+    for (0..replica_count) |replica| {
+        recovered_shadow_processes[replica] = try shell.spawn(
+            .{ .stderr_behavior = .Inherit },
+            "{tigerbeetle} start --experimental" ++
+                shadow_start_options ++
+                " --addresses={addresses} {datafile}",
+            .{
+                .tigerbeetle = shadow_executable,
+                .addresses = shadow_addresses,
+                .datafile = shadow_datafiles[replica],
+            },
+        );
+    }
+    try ShadowTest.wait_for_cluster(shell, shadow_executable, shadow_addresses);
+
+    const lookup = try ShadowTest.repl(
+        shell,
+        shadow_executable,
+        shadow_addresses,
+        "lookup_accounts id=1, id=2",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, lookup, "\"id\": \"1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, lookup, "\"id\": \"2\"") != null);
 }
 
 test "shadow cluster multi-replica" {
+    if (shopify_integration_skip_shadow) return error.SkipZigTest;
+
     const gpa = std.testing.allocator;
     const shell = try Shell.create(gpa);
     defer shell.destroy();

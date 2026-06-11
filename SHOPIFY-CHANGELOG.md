@@ -3,6 +3,17 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Patches
+
+- [#158](https://github.com/shop/tigerbeetle/pull/158)
+
+  Stop shadow replicas as soon as they see source-cluster upgrade prepares, so
+  rollback datafiles do not retain a replayable upgrade bar that would make a
+  restarted shadow cluster try to execute the upgraded release. Add integration
+  coverage for restarting shadow datafiles after source-cluster in-place upgrade.
+
 ## TigerBeetle 0.17.3-shopify1
 
 Released: 2026-06-09
