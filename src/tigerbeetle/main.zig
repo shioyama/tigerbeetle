@@ -89,7 +89,13 @@ pub fn main() !void {
 
     // Try and init IO early, before a file has even been created, so if it fails (eg, io_uring
     // is not available) there won't be a dangling file.
-    var io = try IO.init(128, 0);
+    const io_entries: u12 = switch (command) {
+        // In format, all writes are issued in parallel with no backpressue. It's nice and simple,
+        // but means a larger loop size is needed to avoid a warning.
+        .format, .recover => 2048,
+        else => 128,
+    };
+    var io = try IO.init(io_entries, 0);
     defer io.deinit();
 
     var time_os: TimeOS = .{};
@@ -588,16 +594,15 @@ fn command_reformat(
     defer reformatter.deinit(gpa);
 
     reformatter.start();
-    while (reformatter.done() == null) {
+    while (reformatter.pending()) {
         client.tick();
         try io.run_for_ns(constants.tick_ms * std.time.ns_per_ms);
     }
-    switch (reformatter.done().?) {
-        .failed => |err| {
-            log.err("{}: error: {s}", .{ args.replica, @errorName(err) });
-            return err;
-        },
-        .ok => log.info("{}: success", .{args.replica}),
+    if (reformatter.format()) {
+        log.info("{}: success", .{args.replica});
+    } else |err| {
+        log.err("{}: error: {s}", .{ args.replica, @errorName(err) });
+        return err;
     }
 }
 
