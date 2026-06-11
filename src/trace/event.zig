@@ -58,6 +58,26 @@ const TreeEnum = tree_enum: {
     } });
 };
 
+const GrooveEnum = groove_enum: {
+    const tree_ids = @import("../state_machine.zig").tree_ids;
+    var groove_fields: []const std.builtin.Type.EnumField = &[_]std.builtin.Type.EnumField{};
+
+    for (std.meta.declarations(tree_ids)) |groove_field| {
+        const tree_ids_groove = @field(tree_ids, groove_field.name);
+        groove_fields = groove_fields ++ &[_]std.builtin.Type.EnumField{.{
+            .name = groove_field.name,
+            .value = @field(tree_ids_groove, "timestamp"),
+        }};
+    }
+
+    break :groove_enum @Type(.{ .@"enum" = .{
+        .tag_type = u32,
+        .fields = groove_fields,
+        .decls = &.{},
+        .is_exhaustive = true,
+    } });
+};
+
 /// Returns the count of an exhaustive enum.
 fn enum_count(EnumOrUnion: type) u8 {
     const type_info = @typeInfo(EnumOrUnion);
@@ -150,6 +170,7 @@ pub const Event = union(enum) {
     loop_run_for_ns,
     loop_tick,
     loop_callbacks,
+    loop_kernel,
 
     pub const Tag = std.meta.Tag(Event);
 
@@ -229,6 +250,7 @@ pub const EventTiming = union(Event.Tag) {
     loop_run_for_ns,
     loop_tick,
     loop_callbacks,
+    loop_kernel,
 
     pub const slot_limits = std.enums.EnumArray(Event.Tag, u32).init(.{
         .replica_commit = enum_count(CommitStage.Tag),
@@ -256,6 +278,7 @@ pub const EventTiming = union(Event.Tag) {
         .loop_run_for_ns = 1,
         .loop_tick = 1,
         .loop_callbacks = 1,
+        .loop_kernel = 1,
     });
 
     pub const slot_bases = array: {
@@ -393,6 +416,7 @@ pub const EventTracing = union(Event.Tag) {
     loop_run_for_ns,
     loop_tick,
     loop_callbacks,
+    loop_kernel,
 
     pub const stack_limits = std.enums.EnumArray(Event.Tag, u32).init(.{
         .replica_commit = 1,
@@ -420,6 +444,7 @@ pub const EventTracing = union(Event.Tag) {
         .loop_run_for_ns = 1,
         .loop_tick = 1,
         .loop_callbacks = 1,
+        .loop_kernel = 1,
     });
 
     pub const stack_bases = array: {
@@ -502,7 +527,11 @@ pub const EventTracing = union(Event.Tag) {
     // captured, but no per trace logs or JSON will be emitted.
     pub fn aggregate_only(event: *const EventTracing) bool {
         return switch (event.*) {
-            .loop_run_for_ns, .loop_tick, .loop_callbacks => true,
+            .loop_run_for_ns,
+            .loop_tick,
+            .loop_callbacks,
+            .loop_kernel,
+            => true,
             else => false,
         };
     }
@@ -534,6 +563,8 @@ pub const EventMetric = union(enum) {
     grid_blocks_missing,
     grid_cache_hits,
     grid_cache_misses,
+    lsm_object_cache_entries: struct { groove: GrooveEnum },
+    lsm_object_cache_entries_max: struct { groove: GrooveEnum },
     lsm_nodes_free,
     lsm_manifest_block_count,
     metrics_statsd_packets,
@@ -545,6 +576,8 @@ pub const EventMetric = union(enum) {
     message_bus_connections_max,
     compaction_values_physical: struct { tree: TreeEnum },
     compaction_values_logical: struct { tree: TreeEnum },
+
+    loop_syscalls,
 
     pub const slot_limits = std.enums.EnumArray(Tag, u32).init(.{
         .table_count_visible = enum_count(TreeEnum),
@@ -570,6 +603,8 @@ pub const EventMetric = union(enum) {
         .grid_blocks_missing = 1,
         .grid_cache_hits = 1,
         .grid_cache_misses = 1,
+        .lsm_object_cache_entries = enum_count(GrooveEnum),
+        .lsm_object_cache_entries_max = enum_count(GrooveEnum),
         .lsm_nodes_free = 1,
         .lsm_manifest_block_count = 1,
         .metrics_statsd_packets = 1,
@@ -581,6 +616,7 @@ pub const EventMetric = union(enum) {
         .message_bus_connections_max = 1,
         .compaction_values_physical = enum_count(TreeEnum),
         .compaction_values_logical = enum_count(TreeEnum),
+        .loop_syscalls = 1,
     });
 
     pub const slot_bases = array: {
@@ -611,6 +647,15 @@ pub const EventMetric = union(enum) {
             => |data| {
                 const tree_id = index_from_enum(data.tree);
                 const offset = tree_id;
+                assert(offset < slot_limits.get(event.*));
+
+                return slot_bases.get(event.*) + offset;
+            },
+            inline .lsm_object_cache_entries,
+            .lsm_object_cache_entries_max,
+            => |data| {
+                const groove = index_from_enum(data.groove);
+                const offset = groove;
                 assert(offset < slot_limits.get(event.*));
 
                 return slot_bases.get(event.*) + offset;
@@ -703,6 +748,12 @@ test "EventMetric slot doesn't have collisions" {
             .value_count_visible => .{ .value_count_visible = .{
                 .tree = g.enum_value(TreeEnum),
             } },
+            .lsm_object_cache_entries => .{ .lsm_object_cache_entries = .{
+                .groove = g.enum_value(GrooveEnum),
+            } },
+            .lsm_object_cache_entries_max => .{ .lsm_object_cache_entries_max = .{
+                .groove = g.enum_value(GrooveEnum),
+            } },
             .compaction_values_physical => .{ .compaction_values_physical = .{
                 .tree = g.enum_value(TreeEnum),
             } },
@@ -784,6 +835,7 @@ test "EventTiming slot doesn't have collisions" {
             .loop_run_for_ns => .loop_run_for_ns,
             .loop_tick => .loop_tick,
             .loop_callbacks => .loop_callbacks,
+            .loop_kernel => .loop_kernel,
         };
         try stacks.append(allocator, event.slot());
     }
