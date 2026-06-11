@@ -57,9 +57,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git switch --create "$branch"
           git add .shopify-build/fork-versions.txt
-          git commit -m "Bump fork-versions.txt for $version"
+          git commit -m "[shopify] Bump fork-versions.txt for $version"
           git push -u origin "$branch"
           gh pr create \
-            --title "[shopify] Bump fork-versions.txt for $version" \
+            --title "Bump fork-versions.txt for $version" \
             --body "Auto-generated after the \`$version\` tag was pushed. Merging keeps \`.shopify-build/fork-versions.txt\` in sync with the latest \`-shopifyN\` per \`X.Y.Z\` base reachable from \`main\` (capped at four patch lines), which \`fetch-fork-binaries.sh\` reads to stage fork binaries for vortex's multi-version slots. Verify the \`$version\` \`.deb\` is published to Cloudsmith before merging." \
             --base main
