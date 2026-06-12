@@ -3,6 +3,14 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Fixes
+
+- [#160](https://github.com/shop/tigerbeetle/pull/160)
+
+  Update Shopify fork code to use stdx.Shell following upstream move.
+
 ## TigerBeetle 0.17.4-shopify1
 
 Released: 2026-06-11

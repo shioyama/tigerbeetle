@@ -35,8 +35,8 @@
 
 const std = @import("std");
 const mem = std.mem;
+const stdx = @import("stdx");
 
-const Shell = @import("../shell.zig");
 const shopify_stdx = @import("stdx.zig");
 const ChangelogIterator = @import("../scripts/changelog.zig").ChangelogIterator;
 const changelog_parse = @import("changelog_parse.zig");
@@ -78,7 +78,7 @@ test "tidy shopify fork" {
     diagnostics_started = false;
 
     const allocator = std.testing.allocator;
-    const shell = try Shell.create(allocator);
+    const shell = try stdx.Shell.create(allocator);
     defer shell.destroy();
 
     // Check 2: SHOPIFY-CHANGELOG.md is structurally well-formed. Runs
@@ -239,7 +239,7 @@ test "tidy shopify fork" {
 const unreleased_header = "## TigerBeetle (unreleased)";
 
 fn validate_commit_changelog_entries_target_unreleased(
-    shell: *Shell,
+    shell: *stdx.Shell,
     sha: []const u8,
     short_sha: []const u8,
 ) !bool {
@@ -406,7 +406,7 @@ test "find_changelog_entry_added_outside_unreleased" {
 // Walk every .zig file under src/shopify/ and report any function declarations whose
 // names use camelCase. PascalCase (type-returning) functions are allowed because that
 // is how Zig conventionally names generic-type constructors.
-fn validate_snake_case_functions(shell: *Shell) !void {
+fn validate_snake_case_functions(shell: *stdx.Shell) !void {
     const allocator = shell.arena.allocator();
     const paths = try shell.find(.{
         .where = &.{"src/shopify"},
@@ -445,7 +445,7 @@ const fork_versions_manifest = ".shopify-build/fork-versions.txt";
 // `.fork-bins/` in sync with what `release_history()` will iterate. Once
 // enough fork tags exist to fill every slot, `.shopify-build/fetch-upstream-tags.sh`
 // becomes redundant and can be retired.
-fn validate_fork_versions_manifest(shell: *Shell) !void {
+fn validate_fork_versions_manifest(shell: *stdx.Shell) !void {
     const allocator = shell.arena.allocator();
 
     const tags_output = shell.exec_stdout(
@@ -509,7 +509,7 @@ fn validate_fork_versions_manifest(shell: *Shell) !void {
 //   `main` with no fork release on top yet).
 // - Current branch starts with `release/` (release PRs intentionally cut the
 //   same-base bump).
-fn compute_server_changes_blocked(shell: *Shell) !bool {
+fn compute_server_changes_blocked(shell: *stdx.Shell) !bool {
     const allocator = shell.arena.allocator();
 
     const shopify_text = try shell.project_root.readFileAlloc(
@@ -567,7 +567,7 @@ fn compute_server_changes_blocked(shell: *Shell) !bool {
 // the caller wires this in lazily: a contributor who hasn't run `./zig/zig
 // build` yet only sees the error when the block would actually fire.
 fn compute_server_closure(
-    shell: *Shell,
+    shell: *stdx.Shell,
 ) !std.StringArrayHashMapUnmanaged(void) {
     const allocator = shell.arena.allocator();
     var closure: std.StringArrayHashMapUnmanaged(void) = .empty;

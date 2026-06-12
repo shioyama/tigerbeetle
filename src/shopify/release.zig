@@ -12,7 +12,6 @@ const std = @import("std");
 const log = std.log;
 const stdx = @import("stdx");
 
-const Shell = @import("../shell.zig");
 const ChangelogIterator = @import("../scripts/changelog.zig").ChangelogIterator;
 const shopify_changelog = @import("./changelog.zig");
 const shopify_github = @import("./github.zig");
@@ -30,7 +29,7 @@ const ReleasePrep = struct {
     next_n: u16,
 };
 
-fn read_release_prep(shell: *Shell) !ReleasePrep {
+fn read_release_prep(shell: *stdx.Shell) !ReleasePrep {
     const allocator = shell.arena.allocator();
 
     const shopify_text = try shell.project_root.readFileAlloc(
@@ -73,7 +72,7 @@ fn read_release_prep(shell: *Shell) !ReleasePrep {
 }
 
 fn write_release_changelog(
-    shell: *Shell,
+    shell: *stdx.Shell,
     shopify_text: []const u8,
     version: []const u8,
 ) ![]const u8 {
@@ -98,7 +97,7 @@ fn write_release_changelog(
 
 /// Rewrite the fork changelog into the same shape a release branch would carry,
 /// without committing.
-pub fn prepare_validation_release(shell: *Shell) !void {
+pub fn prepare_validation_release(shell: *stdx.Shell) !void {
     const prep = try read_release_prep(shell);
     const shopify_text = if (prep.has_unreleased)
         prep.shopify_text
@@ -120,7 +119,7 @@ pub fn prepare_validation_release(shell: *Shell) !void {
     log.info("SHOPIFY-CHANGELOG.md finalized in-place as {s}", .{prep.version});
 }
 
-pub fn main(shell: *Shell, gpa: std.mem.Allocator) !void {
+pub fn main(shell: *stdx.Shell, gpa: std.mem.Allocator) !void {
     _ = gpa;
 
     const allocator = shell.arena.allocator();
@@ -199,7 +198,7 @@ fn confirm_release(allocator: std.mem.Allocator, version: []const u8) !bool {
 }
 
 fn compose_release_pr_body(
-    shell: *Shell,
+    shell: *stdx.Shell,
     version: []const u8,
     changelog_body: []const u8,
     base_version: []const u8,
@@ -259,7 +258,7 @@ fn append_upstream_changelog_body(
 /// `scripts/release.zig` after upstream's per-language build has populated
 /// `zig-out/dist/tigerbeetle/` and `zig-out/dist/go/`.
 pub fn build_artifacts(
-    shell: *Shell,
+    shell: *stdx.Shell,
     shopify_version: []const u8,
 ) !void {
     var section = try shell.open_section("build shopify artifacts");
@@ -328,7 +327,7 @@ pub fn build_artifacts(
     // preceding `build_tigerbeetle_target` run already produced them stamped
     // with the correct release triples via the default install step.
     inline for (.{ "tb-snapshot", "tb-datafile" }) |helper| {
-        try Shell.copy_path(
+        try stdx.Shell.copy_path(
             shell.project_root,
             try shell.fmt("zig-out/bin/{s}", .{helper}),
             bin_dir,
@@ -401,7 +400,7 @@ pub fn build_artifacts(
 /// Asserts staged binaries report `TigerBeetle version <shopify_version>...`
 /// and match each other byte-for-byte.
 fn assert_release_version(
-    shell: *Shell,
+    shell: *stdx.Shell,
     pkg_dir: []const u8,
     shopify_version: []const u8,
 ) !void {
