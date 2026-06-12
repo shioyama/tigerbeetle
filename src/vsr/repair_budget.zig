@@ -47,7 +47,7 @@ pub const RepairBudgetJournal = struct {
     // increasing the repair latency on expiry.
     duration_expiry_max: stdx.Duration = .ms(500),
 
-    // Maximum inflight `request_prepare` messages per remote replica, at any point of time.
+    // Maximum inflight `get_prepare` messages per remote replica, at any point of time.
     //
     // This is kept small to ensure that even if the budget to a remote replica is saturated
     // by multiple replicas, overflowing the egress `send_queue` (which leads to dropped messages)
@@ -186,7 +186,7 @@ pub const RepairBudgetJournal = struct {
                 // to a new checkpoint), in which case we request a unique op from each replica.
                 budget.replicas_repair_latency[replica_index] = ewma_add_duration(
                     budget.replicas_repair_latency[replica_index],
-                    now.duration_since(requested_prepare.value),
+                    requested_prepare.value.elapsed(now),
                 );
             }
         }
@@ -219,7 +219,7 @@ pub const RepairBudgetJournal = struct {
 
             while (requested_prepares_index < requested_prepares.entries.len) {
                 const requested_at = requested_prepares.values()[requested_prepares_index];
-                const duration_since_requested_at = now.duration_since(requested_at);
+                const duration_since_requested_at = requested_at.elapsed(now);
                 const duration_expiry_ns = @min(
                     budget.repair_latency_multiple_expiry *
                         budget.replicas_repair_latency[replica_index].ns,
@@ -281,7 +281,7 @@ pub const RepairBudgetGrid = struct {
     // remote replica is saturated by multiple replicas, overflowing
     // the egress `send_queue` (which leads to dropped messages, and
     // wasted network & storage IO) on the remote replica is unlikely.
-    // The +1 allows us to send a full `request_blocks` even when
+    // The +1 allows us to send a full `get_blocks` even when
     // all but one request has been responded to.
     const replica_blocks_requested_max = constants.grid_repair_request_max + 1;
 
@@ -385,7 +385,7 @@ pub const RepairBudgetGrid = struct {
         for (budget.replicas_requested_blocks, 0..) |requested_blocks, index| {
             if (requested_blocks.get(block_identifier)) |requested_at| {
                 assert(index != budget.replica_index);
-                const duration_since_requested = now.duration_since(requested_at);
+                const duration_since_requested = requested_at.elapsed(now);
                 if (duration_since_requested_min == null or
                     duration_since_requested.ns < duration_since_requested_min.?.ns)
                 {
@@ -450,7 +450,7 @@ pub const RepairBudgetGrid = struct {
 
             while (requested_blocks_index < requested_blocks.entries.len) {
                 const requested_at = requested_blocks.values()[requested_blocks_index];
-                const duration_since_requested_at = now.duration_since(requested_at);
+                const duration_since_requested_at = requested_at.elapsed(now);
 
                 if (duration_since_requested_at.ns > duration_expiry.ns) {
                     requested_blocks.swapRemoveAt(requested_blocks_index);

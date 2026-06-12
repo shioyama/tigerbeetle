@@ -35,6 +35,8 @@ const ReplicaReformat =
     vsr.ReplicaReformatType(StateMachine, MessageBus, Storage);
 const data_file_size_min = vsr.superblock.data_file_size_min;
 
+const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator(.{});
+
 const KiB = stdx.KiB;
 const MiB = stdx.MiB;
 const GiB = stdx.GiB;
@@ -65,11 +67,16 @@ pub const std_options: std.Options = .{
 pub fn main() !void {
     if (builtin.os.tag == .windows) try vsr.multiversion.wait_for_parent_to_exit();
 
-    var arena_instance = std.heap.ArenaAllocator.init(stdx.huge_page_allocator);
-    defer arena_instance.deinit();
-
-    // Arena is an implementation detail, all memory must be freed.
-    const gpa = arena_instance.allocator();
+    var allocator = GeneralPurposeAllocator.init;
+    allocator.backing_allocator = stdx.huge_page_allocator;
+    const gpa = allocator.allocator();
+    defer {
+        _ = allocator.detectLeaks();
+        switch (allocator.deinit()) {
+            .ok => {},
+            .leak => @panic("memory leaked"),
+        }
+    }
 
     var flags = stdx.Flags.init(gpa);
     defer flags.deinit(gpa);
@@ -373,6 +380,9 @@ fn command_start(
             .timeout_prepare_ticks = args.timeout_prepare_ticks,
             .timeout_grid_repair_message_ticks = args.timeout_grid_repair_message_ticks,
             .commit_stall_probability = args.commit_stall_probability,
+            .commit_stall_lag_min = args.commit_stall_lag_min,
+            .commit_stall_lag_max = args.commit_stall_lag_max,
+            .commit_stall_multiple_max = args.commit_stall_multiple_max,
             .state_machine_options = .{
                 .batch_size_limit = args.request_size_limit - @sizeOf(vsr.Header),
                 .lsm_forest_compaction_block_count = args.lsm_forest_compaction_block_count,
@@ -519,8 +529,8 @@ fn command_start(
         };
 
         if (replica.cluster == 0) {
-            log.warn("a cluster id of 0 is reserved for testing and benchmarking, " ++
-                "do not use in production", .{});
+            log.warn("A cluster id of 0 is reserved for testing and benchmarking, " ++
+                "do not use in production.", .{});
         }
     }
 

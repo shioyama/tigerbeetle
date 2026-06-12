@@ -19,7 +19,7 @@ pub const IO = struct {
     pub const NextTickSource = common.NextTickSource;
 
     iocp: os.windows.HANDLE,
-    time_os: TimeOS = .{},
+    time: TimeOS = .{},
     io_pending: usize = 0,
     timeouts: QueueType(Completion) = QueueType(Completion).init(.{ .name = "io_timeouts" }),
     completed: QueueType(Completion) = QueueType(Completion).init(.{ .name = "io_completed" }),
@@ -67,8 +67,9 @@ pub const IO = struct {
 
         defer self.stats.trace();
 
-        var timer = try std.time.Timer.start();
-        defer self.stats.window.time_run_for_ns.ns += timer.read();
+        const timer = self.time.monotonic();
+        defer self.stats.window.time_run_for_ns.ns +=
+            timer.elapsed(self.time.monotonic()).ns;
 
         const Callback = struct {
             fn on_timeout(
@@ -97,73 +98,79 @@ pub const IO = struct {
     };
 
     fn flush(self: *IO, mode: FlushMode) !void {
-        if (self.completed.empty()) {
-            // Compute how long to poll by flushing timeout completions.
-            // NOTE: this may push to completed queue.
-            var timeout_ms: ?os.windows.DWORD = null;
-            if (self.flush_timeouts()) |expires_ns| {
-                // 0ns expires should have been completed not returned.
-                assert(expires_ns != 0);
-                // Round up sub-millisecond expire times to the next millisecond.
-                const expires_ms = (expires_ns + (std.time.ns_per_ms / 2)) / std.time.ns_per_ms;
-                // Saturating cast to DWORD milliseconds.
-                const expires = std.math.cast(os.windows.DWORD, expires_ms) orelse
-                    std.math.maxInt(os.windows.DWORD);
-                // Max DWORD is reserved for INFINITE so cap the cast at max - 1.
-                timeout_ms = if (expires == os.windows.INFINITE) expires - 1 else expires;
-            }
-
-            // Poll for IO iff there's IO pending and flush_timeouts() found no ready completions.
-            if (self.io_pending > 0 and self.completed.empty()) {
-                // In blocking mode, we're always waiting at least until the timeout by run_for_ns.
-                // In non-blocking mode, we shouldn't wait at all.
-                const io_timeout = switch (mode) {
-                    .blocking => timeout_ms orelse @panic("IO.flush blocking unbounded"),
-                    .non_blocking => 0,
-                };
-
-                var events: [64]os.windows.OVERLAPPED_ENTRY = undefined;
-                const num_events: u32 = os.windows.GetQueuedCompletionStatusEx(
-                    self.iocp,
-                    &events,
-                    io_timeout,
-                    false, // Non-alertable wait.
-                ) catch |err| switch (err) {
-                    error.Timeout => 0,
-                    error.Aborted => unreachable,
-                    else => |e| return e,
-                };
-
-                assert(self.io_pending >= num_events);
-                self.io_pending -= num_events;
-
-                for (events[0..num_events]) |event| {
-                    const raw_overlapped = event.lpOverlapped;
-                    const overlapped: *Completion.Overlapped = @fieldParentPtr(
-                        "raw",
-                        raw_overlapped,
-                    );
-                    const completion = overlapped.completion;
-                    completion.link = .{};
-                    self.completed.push(completion);
-                }
-            }
+        // Always check for expired timeouts, even if the completed
+        // queue already has items. This matches Darwin behavior and
+        // ensures timeouts that expire during callback dispatch are
+        // discovered on the next flush.
+        var timeout_ms: ?os.windows.DWORD = null;
+        if (self.flush_timeouts()) |expires_ns| {
+            // 0ns expires should have been completed not returned.
+            assert(expires_ns != 0);
+            // Round up sub-millisecond expire times to the next millisecond.
+            const expires_ms = (expires_ns + (std.time.ns_per_ms / 2)) / std.time.ns_per_ms;
+            // Saturating cast to DWORD milliseconds.
+            const expires = std.math.cast(os.windows.DWORD, expires_ms) orelse
+                std.math.maxInt(os.windows.DWORD);
+            // Max DWORD is reserved for INFINITE so cap the cast at max - 1.
+            timeout_ms = if (expires == os.windows.INFINITE) expires - 1 else expires;
         }
 
-        // Dequeue and invoke all the completions currently ready.
-        // Must read all `completions` before invoking the callbacks
-        // as the callbacks could potentially submit more completions.
-        var completed = self.completed;
-        self.completed.reset();
+        // Wait for IOCP completions when there's IO pending or when we need
+        // to block for timeout expiry. Without this, pure-timeout workloads
+        // (io_pending == 0) would busy-loop and pick off timeouts one at a
+        // time instead of batching all that expire at the same instant.
+        if (self.completed.empty() and
+            (self.io_pending > 0 or mode == .blocking))
+        {
+            const io_timeout = switch (mode) {
+                .blocking => timeout_ms orelse @panic("IO.flush blocking unbounded"),
+                .non_blocking => 0,
+            };
 
-        var timer = try std.time.Timer.start();
-        while (completed.pop()) |completion| {
+            var events: [64]os.windows.OVERLAPPED_ENTRY = undefined;
+            const num_events: u32 = os.windows.GetQueuedCompletionStatusEx(
+                self.iocp,
+                &events,
+                io_timeout,
+                false, // Non-alertable wait.
+            ) catch |err| switch (err) {
+                error.Timeout => 0,
+                error.Aborted => unreachable,
+                else => |e| return e,
+            };
+
+            assert(self.io_pending >= num_events);
+            self.io_pending -= num_events;
+
+            for (events[0..num_events]) |event| {
+                const raw_overlapped = event.lpOverlapped;
+                const overlapped: *Completion.Overlapped = @fieldParentPtr(
+                    "raw",
+                    raw_overlapped,
+                );
+                const completion = overlapped.completion;
+                completion.link = .{};
+                self.completed.push(completion);
+            }
+
+            // After sleeping for the timeout, re-check timeouts so that
+            // all timeouts expiring at the same instant are collected in
+            // the same batch rather than trickling in one per flush.
+            _ = self.flush_timeouts();
+        }
+
+        // Drain all ready completions. Callbacks may push new completions
+        // (e.g. zero-delay timeouts) which are picked up in the same pass,
+        // matching Linux io_uring behavior (see ba0535354).
+        const timer = self.time.monotonic();
+        while (self.completed.pop()) |completion| {
             (completion.callback)(Completion.Context{
                 .io = self,
                 .completion = completion,
             });
         }
-        self.stats.window.time_callbacks.ns += timer.read();
+        const elapsed = timer.elapsed(self.time.monotonic());
+        self.stats.window.time_callbacks.ns += elapsed.ns;
     }
 
     fn flush_timeouts(self: *IO) ?u64 {
@@ -174,7 +181,7 @@ pub const IO = struct {
         var timeouts_iterator = self.timeouts.iterate();
         while (timeouts_iterator.next()) |completion| {
             // Lazily get the current time.
-            const now = current_time orelse self.time_os.monotonic().ns;
+            const now = current_time orelse self.time.monotonic().ns;
             current_time = now;
 
             // Move the completion to completed if it expired.
@@ -318,32 +325,6 @@ pub const IO = struct {
             .timeout => self.timeouts.push(completion),
             else => self.completed.push(completion),
         }
-    }
-
-    pub fn cancel_all(_: *IO) void {
-        // TODO Cancel in-flight async IO and wait for all completions.
-    }
-
-    pub const CancelError = error{
-        NotRunning,
-        NotInterruptable,
-    } || posix.UnexpectedError;
-
-    pub fn cancel(
-        _: *IO,
-        comptime Context: type,
-        _: Context,
-        comptime _: fn (
-            context: Context,
-            completion: *Completion,
-            result: CancelError!void,
-        ) void,
-        _: struct {
-            completion: *Completion,
-            target: *Completion,
-        },
-    ) void {
-        @panic("cancelation is not supported on windows");
     }
 
     pub const AcceptError = posix.AcceptError || posix.SetSockOptError;
@@ -1051,7 +1032,7 @@ pub const IO = struct {
             callback,
             completion,
             .timeout,
-            .{ .deadline = self.time_os.monotonic().ns + nanoseconds },
+            .{ .deadline = self.time.monotonic().ns + nanoseconds },
             struct {
                 fn do_operation(ctx: Completion.Context, op: anytype) TimeoutError!void {
                     _ = ctx;
@@ -1220,7 +1201,7 @@ pub const IO = struct {
     /// Closes a socket opened by the IO instance.
     pub fn close_socket(self: *IO, socket: socket_t) void {
         _ = self;
-        posix.close(socket);
+        _ = os.windows.ws2_32.closesocket(socket);
     }
 
     /// Listen on the given TCP socket.

@@ -87,7 +87,11 @@ const CLIArgs = union(enum) {
         log_trace: bool = false,
         timeout_prepare_ms: ?u64 = null,
         timeout_grid_repair_message_ms: ?u64 = null,
+
         commit_stall_probability: ?Ratio = null,
+        commit_stall_lag_min: ?u32 = null,
+        commit_stall_lag_max: ?u32 = null,
+        commit_stall_multiple_max: ?u16 = null,
 
         // [shopify] Shadow mode: connect to another cluster as standbys to sync state.
         shadow: ?[]const u8 = null,
@@ -545,6 +549,9 @@ pub const Command = union(enum) {
         timeout_prepare_ticks: ?u64,
         timeout_grid_repair_message_ticks: ?u64,
         commit_stall_probability: ?Ratio,
+        commit_stall_lag_min: ?u32,
+        commit_stall_lag_max: ?u32,
+        commit_stall_multiple_max: ?u16,
         trace: ?[]const u8,
         development: bool,
         experimental: bool,
@@ -1119,6 +1126,9 @@ fn parse_args_start(start: CLIArgs.Start) Command.Start {
             "--timeout-grid-repair-message-ms",
         ),
         .commit_stall_probability = start.commit_stall_probability,
+        .commit_stall_lag_min = start.commit_stall_lag_min,
+        .commit_stall_lag_max = start.commit_stall_lag_max,
+        .commit_stall_multiple_max = start.commit_stall_multiple_max,
         .development = start.development,
         .experimental = start.experimental,
         .trace = start.trace,

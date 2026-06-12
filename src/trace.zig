@@ -288,7 +288,7 @@ pub fn start(tracer: *Tracer, event: Event) void {
     }
 
     const writer = tracer.options.writer orelse return;
-    const time_elapsed = time_now.duration_since(tracer.time_start);
+    const time_elapsed = tracer.time_start.elapsed(time_now);
 
     var buffer_stream = std.io.fixedBufferStream(tracer.buffer);
 
@@ -335,7 +335,7 @@ pub fn stop(tracer: *Tracer, event: Event) void {
 
     const event_start = tracer.events_started[stack].?;
     const event_end = tracer.time.monotonic();
-    const event_duration = event_end.duration_since(event_start);
+    const event_duration = event_start.elapsed(event_end);
 
     assert(tracer.events_started[stack] != null);
     tracer.events_started[stack] = null;
@@ -361,7 +361,7 @@ pub fn stop(tracer: *Tracer, event: Event) void {
         });
     }
 
-    tracer.write_stop(stack, event_end.duration_since(tracer.time_start));
+    tracer.write_stop(stack, tracer.time_start.elapsed(event_end));
 }
 
 pub fn cancel(tracer: *Tracer, event_tag: Event.Tag) void {
@@ -374,7 +374,7 @@ pub fn cancel(tracer: *Tracer, event_tag: Event.Tag) void {
                 log.debug("{}: {s}: cancel", .{ tracer.process_id, @tagName(event_tag) });
             }
 
-            const event_duration = event_end.duration_since(tracer.time_start);
+            const event_duration = tracer.time_start.elapsed(event_end);
 
             tracer.events_started[stack] = null;
             tracer.write_stop(@intCast(stack), event_duration);
@@ -515,8 +515,8 @@ test "trace json and statsd" {
 
     try snap(@src(),
         \\[
-        \\{"pid":0,"tid":208,"ph":"B","ts":0,"cat":"metrics_emit","name":"metrics_emit  ","args":""},
-        \\{"pid":0,"tid":208,"ph":"E","ts":100000},
+        \\{"pid":0,"tid":136,"ph":"B","ts":0,"cat":"metrics_emit","name":"metrics_emit  ","args":""},
+        \\{"pid":0,"tid":136,"ph":"E","ts":100000},
         \\{"pid":1,"tid":0,"ph":"B","ts":100000,"cat":"replica_commit","name":"replica_commit  stage=idle","args":{"stage":"idle","op":123}},
         \\{"pid":1,"tid":8,"ph":"B","ts":110000,"cat":"compact_beat","name":"compact_beat  tree=Account.id","args":{"tree":"Account.id","level_b":1}},
         \\{"pid":1,"tid":8,"ph":"E","ts":130000},
