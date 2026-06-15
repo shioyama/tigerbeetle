@@ -131,6 +131,42 @@ If non-fork-owned conflicts remain, the script writes `.git/SHOPIFY_UPSTREAM_MER
 - [TigerBeetle Cluster Monitoring](https://observe.shopify.io/d/tigerbeetle-cluster-monitoring/tigerbeetle-cluster-monitoring?orgId=1&var-environment=staging&var-cluster=2&var-instance_name=$__all&refresh=1m)
 - [Ledger Service](https://observe.shopify.io/d/ledger-service/ledger-service?orgId=1&from=now-1h&to=now&timezone=browser&var-env=production&refresh=1m)
 
+### Logs
+
+TigerBeetle servers run on SOX GCE VMs managed by `ShopifyRestricted/gcp-chef`, not
+Kubernetes. Their logs are forwarded through syslog and Vector into Observe's SOX log
+dataset:
+
+```text
+systemd/journald/syslog -> rsyslog -> Vector -> Observe compliance logs -> sox
+```
+
+In Observe Investigate, query the `sox` dataset with filters such as:
+
+```text
+dataset = sox
+environment = staging       # or production
+appname = tigerbeetle
+hostname = <instance_name>  # e.g. tigerbeetle-zfs-nvme-1-shadow-us-central1-1
+```
+
+`hostname` corresponds to the `instance_name` label used by the Cluster Monitoring
+dashboard. To discover current values, use the dashboard variables or run a PromQL query
+like:
+
+```promql
+group by(app_environment, cluster, instance_name) (tb_replica_status)
+```
+
+The forwarding path is configured in `ShopifyRestricted/gcp-chef`:
+
+- `roles/tigerbeetle-zfs-nvme.rb` and `roles/tigerbeetle-shadow-zfs-nvme.rb` include
+  `role[base]`.
+- `roles/base.rb` includes `recipe[vector]`.
+- `cookbooks/vector/files/vector-rsyslog.conf` forwards syslog to Vector's Unix socket.
+- `cookbooks/vector/templates/vector.toml.erb` routes syslog and file logs to Observe and
+  sets the index to `sox-<environment>`.
+
 ## Resources
 
 - [ShopifyFRS/fintech-foundations](https://github.com/ShopifyFRS/fintech-foundations): the Ledger Service that runs against this fork in production.
