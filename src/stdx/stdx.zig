@@ -23,6 +23,7 @@ pub const aegis = @import("vendored/aegis.zig");
 pub const dbg = @import("debug.zig").dbg;
 pub const Flags = @import("flags.zig");
 pub const memory_lock_allocated = @import("mlock.zig").memory_lock_allocated;
+pub const Shell = @import("shell.zig");
 pub const timeit = @import("debug.zig").timeit;
 pub const unshare = @import("unshare.zig");
 pub const windows = @import("windows.zig");
@@ -811,6 +812,26 @@ pub fn EnumUnionType(
     } });
 }
 
+/// Constructs an `enum` type from names.
+pub fn EnumType(comptime names: anytype) type {
+    comptime assert(names.len > 0);
+    const EnumField = std.builtin.Type.EnumField;
+    var fields: [names.len]EnumField = undefined;
+    for (names, 0..) |name, i| {
+        fields[i] = .{
+            .name = name,
+            .value = i,
+        };
+    }
+
+    return @Type(.{ .@"enum" = .{
+        .fields = &fields,
+        .decls = &.{},
+        .tag_type = std.math.IntFittingRange(0, names.len),
+        .is_exhaustive = true,
+    } });
+}
+
 /// Creates a slice to a comptime slice without triggering
 /// `error: runtime value contains reference to comptime var`
 pub fn comptime_slice(comptime slice: anytype, comptime len: usize) []const @TypeOf(slice[0]) {
@@ -1109,4 +1130,5 @@ comptime {
     _ = @import("unshare.zig");
     _ = @import("vendored/aegis.zig");
     _ = @import("zipfian.zig");
+    _ = @import("shell.zig");
 }

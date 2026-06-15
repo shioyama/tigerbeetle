@@ -8,7 +8,7 @@ const mem = std.mem;
 const Ast = std.zig.Ast;
 
 const stdx = @import("stdx");
-const Shell = @import("./shell.zig");
+const Shell = stdx.Shell;
 
 const Snap = stdx.Snap;
 const module_path = "src";
@@ -1231,6 +1231,7 @@ const DeadFilesDetector = struct {
             "main.zig",
             "node_bindings.zig",
             "node.zig",
+            "npm_install.zig",
             "page_writer.zig",
             "python_bindings.zig",
             "rust_bindings.zig",
@@ -1244,6 +1245,7 @@ const DeadFilesDetector = struct {
             "vopr.zig",
             "vortex.zig",
             "zig_driver.zig",
+            "ruby_bindings.zig",
         };
         for (entry_points) |entry_point| {
             if (std.mem.startsWith(u8, &file, entry_point)) return true;
@@ -1368,7 +1370,7 @@ test "tidy extensions" {
         .{".json"}, .{".md"},      .{".mod"},    .{".props"}, .{".py"},
         .{".rs"},   .{".service"}, .{".sln"},    .{".sum"},   .{".svg"},
         .{".toml"}, .{".ts"},      .{".txt"},    .{".xml"},   .{".yml"},
-        .{".zig"},  .{".zon"},
+        .{".zig"},  .{".zon"},     .{".rb"},
     });
 
     const exceptions = std.StaticStringMap(void).initComptime(.{
@@ -1396,6 +1398,10 @@ test "tidy extensions" {
         .{".github/ci/test_aof.sh"},
         .{"src/clients/python/pyproject.toml"},
         .{"src/clients/python/src/tigerbeetle/py.typed"},
+        .{".clang-format"},
+        .{"Rakefile"},
+        .{"src/clients/ruby/tigerbeetle.gemspec"},
+        .{"src/clients/ruby/sig/tigerbeetle.rbs"},
         // [shopify]
         .{".shopify-build/VERSION"},
         .{".shopify-build/fetch-fork-binaries.sh"},

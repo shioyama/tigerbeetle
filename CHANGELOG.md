@@ -3,6 +3,120 @@
 Subscribe to the [tracking issue #2231](https://github.com/tigerbeetle/tigerbeetle/issues/2231)
 to receive notifications about breaking changes!
 
+## TigerBeetle 0.17.5
+
+Released: 2026-05-29
+
+### Safety And Performance
+
+- [#3744](https://github.com/tigerbeetle/tigerbeetle/pull/3744)
+
+  Fix a possible Node.js integer overflow panic.
+
+- [#3717](https://github.com/tigerbeetle/tigerbeetle/pull/3717)
+
+  Fix a potential crash in the I/O event listener.
+
+- [#3709](https://github.com/tigerbeetle/tigerbeetle/pull/3709)
+
+  Correct assertions in the code.
+
+- [#3592](https://github.com/tigerbeetle/tigerbeetle/pull/3592)
+
+  Run DISCARD when formatting a block device on Linux, improving SSD performance.
+
+- [#3712](https://github.com/tigerbeetle/tigerbeetle/pull/3712)
+
+  Replace Java's assert keyword with `AssertionError.assertTrue` to prevent silent failures.
+
+- [#3686](https://github.com/tigerbeetle/tigerbeetle/pull/3686)
+
+  Refactor the grid to own all blocks through reference counting.
+
+- [#3702](https://github.com/tigerbeetle/tigerbeetle/pull/3702),
+  [#3730](https://github.com/tigerbeetle/tigerbeetle/pull/3730)
+
+  Inject stalls on the primary more accurately by observing a backup's
+  `op - commit_min`, improving throughput.
+
+- [#3704](https://github.com/tigerbeetle/tigerbeetle/pull/3704)
+
+  Fan out VSR prepare timeout retries.
+
+- [#3729](https://github.com/tigerbeetle/tigerbeetle/pull/3729)
+
+  Explicitly fail on invalid enum values in AMQP parsing per Swival security audit recommendation.
+
+- [#3726](https://github.com/tigerbeetle/tigerbeetle/pull/3726)
+
+  Add an assertion to `CheckpointTrailer.open` as per Swival security audit recommendation.
+
+### Features
+
+- [#3733](https://github.com/tigerbeetle/tigerbeetle/pull/3733)
+
+  Add a Ruby client. Thanks @citizen428!
+
+- [#3750](https://github.com/tigerbeetle/tigerbeetle/pull/3750)
+
+  Switch from `ArenaAllocator` to `DebugAllocator` to fix `ArenaAllocator`
+  rounding up allocations by large amounts.
+
+### Internals
+
+- [#3753](https://github.com/tigerbeetle/tigerbeetle/pull/3753)
+
+  Improve the names of some VSR commands.
+
+- [#3763](https://github.com/tigerbeetle/tigerbeetle/pull/3763)
+
+  Make release validation run from `main`, making it easier to fix when release validation fails.
+
+- [#3746](https://github.com/tigerbeetle/tigerbeetle/pull/3746),
+  [#3752](https://github.com/tigerbeetle/tigerbeetle/pull/3752)
+
+  Move `shell.zig` into `stdx`, making it more robust for different zig project setups.
+
+- [#3745](https://github.com/tigerbeetle/tigerbeetle/pull/3745)
+
+  Show the freshness of performance results in DevHub.
+
+- [#3716](https://github.com/tigerbeetle/tigerbeetle/pull/3716),
+  [#3710](https://github.com/tigerbeetle/tigerbeetle/pull/3710)
+
+  Cleanup `Time` usage and drop `std.time.Timer` uses ahead of its removal in Zig 0.16.
+
+- [#3721](https://github.com/tigerbeetle/tigerbeetle/pull/3721)
+
+  Raise the clock-skew warning threshold from 1ms to 50ms to prevent CI flake.
+
+- [#3703](https://github.com/tigerbeetle/tigerbeetle/pull/3703)
+
+  Introduce configurable primary keys and multiple unique keys to LSM Forests.
+  This enables querying two-phase transfers by `pending_id`.
+
+- [#3711](https://github.com/tigerbeetle/tigerbeetle/pull/3711)
+
+  Fix various tb_client issues, enable Rust client CI on Windows.
+
+- [#3734](https://github.com/tigerbeetle/tigerbeetle/pull/3734)
+
+  Remove the `cancel_all` feature used to shutdown tb_client on Linux, instead terminate message bus
+  connections explicitly.
+
+- [#3724](https://github.com/tigerbeetle/tigerbeetle/pull/3724)
+
+  Dial up concurrency in the Node.js client test to reliably race `destroy` against `create`.
+
+- [#3736](https://github.com/tigerbeetle/tigerbeetle/pull/3736),
+  [#3738](https://github.com/tigerbeetle/tigerbeetle/pull/3738)
+
+  Fix flaky Vörtex and Windows cache CI failures.
+
+### TigerTracks 🎧
+
+- [Weird Fishes](https://open.spotify.com/track/5ygk8Hkp4WCCk7GXWEUP9V)
+
 ## TigerBeetle 0.17.4
 
 Released: 2026-05-08
@@ -26,7 +140,7 @@ As of TigerBeetle 0.17.4, the minimum required Linux kernel version is 5.11.
 
 - [#3680](https://github.com/tigerbeetle/tigerbeetle/pull/3680)
 
-  Track the object caches as metrics, to help with sizing (eg, `--cache-accounts`).
+  Track the object caches as metrics, to help with sizing (e.g., `--cache-accounts`).
 
 - [#3693](https://github.com/tigerbeetle/tigerbeetle/pull/3693)
 
@@ -320,7 +434,7 @@ Released: 2026-03-20
 
 - [#3583](https://github.com/tigerbeetle/tigerbeetle/pull/3583)
 
-  Refactor our iops.zig to a more approriate home in stdx.
+  Refactor our iops.zig to a more appropriate home in stdx.
 
 ### TigerTracks 🎧
 
@@ -983,7 +1097,7 @@ Released: 2025-10-31
 
 - [#3291](https://github.com/tigerbeetle/tigerbeetle/pull/3291)
 
-  Introduces `tigerbeetle inspect integrity` to verify offline that a datafile is uncorrupted.
+  Introduces `tigerbeetle inspect integrity` to verify offline that a data file is uncorrupted.
 
 - [#3254](https://github.com/tigerbeetle/tigerbeetle/pull/3254)
 
@@ -1136,7 +1250,7 @@ Released: 2025-10-03
 
 - [#3286](https://github.com/tigerbeetle/tigerbeetle/pull/3286)
 
-  After successfully adding a test that tests tests in
+  After successfully adding a test that tests in
   [#3136](https://github.com/tigerbeetle/tigerbeetle/pull/3136), we doubled down on this strategy
   and are adding a metric for tracking metrics.
 
@@ -1281,7 +1395,7 @@ Released: 2025-09-12
 
 - [#3206](https://github.com/tigerbeetle/tigerbeetle/pull/3206)
 
-  In order to avoid bimodality if a replica is down (eg, a client sends a request, doesn't hear
+  In order to avoid bimodality if a replica is down (e.g., a client sends a request, doesn't hear
   anything, eventually times out and tries a different replica) clients now proactively send their
   requests to the primary and a randomly selected replica.
 
@@ -1929,7 +2043,7 @@ Released: 2025-06-06
 Released: 2025-05-30
 
 This release includes the `tigerbeetle recover` subcommand, which can be used to _safely_ recover a
-replica that is permanantly lost.
+replica that is permanently lost.
 
 Additionally, it includes Change Data Capture (CDC) support to stream TigerBeetle state to Advanced
 Message Queuing Protocol (AMQP) targets, such as RabbitMQ and other compatible brokers.
@@ -1942,11 +2056,11 @@ CDC and `tigerbeetle recover`!
 
 - [#2996](https://github.com/tigerbeetle/tigerbeetle/pull/2996)
 
-  Add the `tigerbeetle recover` subcommand, to safely recover a replica that is permanantly lost
+  Add the `tigerbeetle recover` subcommand, to safely recover a replica that is permanently lost
   (e.g. if the SSD fails).
 
-  Earlier, the only way to recover a permanantly lost replica was using the `tigerbeetle format`
-  command. Howerver, this was unsafe, as a newly-formatted replica may nack prepares which its
+  Earlier, the only way to recover a permanently lost replica was using the `tigerbeetle format`
+  command. However, this was unsafe, as a newly-formatted replica may nack prepares which its
   previous incarnation acked -- a correctness bug.
 
 - [#2880](https://github.com/tigerbeetle/tigerbeetle/pull/2880)
@@ -2335,7 +2449,7 @@ accounts/transfers per batch.
 - [#2872](https://github.com/tigerbeetle/tigerbeetle/pull/2872),
   [#2873](https://github.com/tigerbeetle/tigerbeetle/pull/2873)
 
-  Fixes and improvemenents in the documentation.
+  Fixes and improvements in the documentation.
 
 ### TigerTracks 🎧
 
@@ -2389,7 +2503,7 @@ Released: 2025-03-31
 - [#2830](https://github.com/tigerbeetle/tigerbeetle/pull/2830)
 
   Allow `tigerbeetle inspect` to run on open data files. This helps with getting an idea what's
-  going on on a running cluster without needing to shut it down first.
+  going on a running cluster without needing to shut it down first.
 
 ### Internals
 
@@ -2423,7 +2537,7 @@ Released: 2025-03-31
 
 ### TigerTracks 🎧
 
-- [Pushing Ownwards](https://www.youtube.com/watch?v=a7AhS0SxE1s)
+- [Pushing Onwards](https://www.youtube.com/watch?v=a7AhS0SxE1s)
 
 ## TigerBeetle 0.16.33
 

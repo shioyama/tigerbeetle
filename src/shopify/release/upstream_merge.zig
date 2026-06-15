@@ -19,7 +19,6 @@ const std = @import("std");
 const log = std.log;
 const stdx = @import("stdx");
 
-const Shell = @import("../../shell.zig");
 const changelog_parse = @import("../changelog_parse.zig");
 const shopify_github = @import("../github.zig");
 const upstream_changelog = @import("../../scripts/changelog.zig");
@@ -41,7 +40,7 @@ pub const CLIArgs = struct {
     @"continue": bool = false,
 };
 
-pub fn main(shell: *Shell, gpa: std.mem.Allocator, args: CLIArgs) !void {
+pub fn main(shell: *stdx.Shell, gpa: std.mem.Allocator, args: CLIArgs) !void {
     _ = gpa;
     const allocator = shell.arena.allocator();
 
@@ -131,7 +130,7 @@ pub fn main(shell: *Shell, gpa: std.mem.Allocator, args: CLIArgs) !void {
 /// Walks unmerged paths after a failed `git merge`, auto-resolving any that fall
 /// under `fork_owned_paths` as "keep HEAD's version." Returns the count of
 /// conflicts that remain (i.e. are not fork-owned) and must be resolved by hand.
-fn auto_resolve_fork_owned_conflicts(shell: *Shell) !u32 {
+fn auto_resolve_fork_owned_conflicts(shell: *stdx.Shell) !u32 {
     const unmerged = try shell.exec_stdout(
         "git diff --name-only --diff-filter=U",
         .{},
@@ -166,7 +165,7 @@ fn is_fork_owned(path: []const u8) bool {
 /// Resolves a single unmerged path by collapsing it to HEAD's version. If HEAD
 /// has the path, check it out and stage it; if HEAD doesn't (we deleted it),
 /// `git rm` so the deletion stands.
-fn resolve_as_ours(shell: *Shell, path: []const u8) !void {
+fn resolve_as_ours(shell: *stdx.Shell, path: []const u8) !void {
     const head_entry = try shell.exec_stdout(
         "git ls-tree HEAD -- {path}",
         .{ .path = path },
@@ -179,7 +178,7 @@ fn resolve_as_ours(shell: *Shell, path: []const u8) !void {
     }
 }
 
-fn finalize_from_state(shell: *Shell, allocator: std.mem.Allocator) !void {
+fn finalize_from_state(shell: *stdx.Shell, allocator: std.mem.Allocator) !void {
     if (!shell.file_exists(state_file)) {
         log.err("--continue used but no merge is in progress (missing {s})", .{state_file});
         return error.NoMergeInProgress;
@@ -211,7 +210,7 @@ fn finalize_from_state(shell: *Shell, allocator: std.mem.Allocator) !void {
 }
 
 fn finalize(
-    shell: *Shell,
+    shell: *stdx.Shell,
     allocator: std.mem.Allocator,
     target: []const u8,
     branch: []const u8,
@@ -271,7 +270,7 @@ fn parse_triple(s: []const u8) ?Triple {
 /// Probe upstream for the next tag — `X.Y.(Z+1)` first, then `X.(Y+1).0`.
 /// Errors if neither exists; a major bump is treated as out-of-scope.
 fn resolve_next_upstream_tag(
-    shell: *Shell,
+    shell: *stdx.Shell,
     allocator: std.mem.Allocator,
     base: Triple,
 ) ![]const u8 {
@@ -296,7 +295,7 @@ fn resolve_next_upstream_tag(
     return error.NoNextUpstreamTag;
 }
 
-fn upstream_tag_exists(shell: *Shell, tag: []const u8) !bool {
+fn upstream_tag_exists(shell: *stdx.Shell, tag: []const u8) !bool {
     const output = try shell.exec_stdout(
         "git ls-remote {url} refs/tags/{tag}",
         .{ .url = upstream_url, .tag = tag },

@@ -11,7 +11,6 @@ comptime {
     _ = @import("ewah.zig");
     _ = @import("ewah_benchmark.zig");
     _ = @import("io/test.zig");
-    _ = @import("list.zig");
     _ = @import("lsm/binary_search.zig");
     _ = @import("lsm/binary_search_benchmark.zig");
     _ = @import("lsm/cache_map.zig");
@@ -29,6 +28,7 @@ comptime {
     _ = @import("lsm/table.zig");
     _ = @import("lsm/table_memory.zig");
     _ = @import("lsm/tree.zig");
+    _ = @import("lsm/unique_key.zig");
     _ = @import("lsm/zig_zag_merge.zig");
     _ = @import("message_buffer.zig");
     _ = @import("multiversion.zig");
@@ -38,7 +38,6 @@ comptime {
     _ = @import("repl/terminal.zig");
     _ = @import("scripts/cfo.zig");
     _ = @import("scripts/changelog.zig");
-    _ = @import("shell.zig");
     _ = @import("shopify/changelog.zig");
     _ = @import("shopify/changelog_parse.zig");
     _ = @import("shopify/release.zig");

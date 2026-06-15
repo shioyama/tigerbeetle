@@ -5,8 +5,10 @@ const posix = std.posix;
 const testing = std.testing;
 const assert = std.debug.assert;
 const stdx = @import("stdx");
-const KiB = stdx.KiB;
+const maybe = stdx.maybe;
 const MiB = stdx.MiB;
+const Instant = stdx.Instant;
+const Duration = stdx.Duration;
 
 const TimeOS = @import("../time.zig").TimeOS;
 const Time = @import("../time.zig").Time;
@@ -279,48 +281,52 @@ test "accept/connect/send/receive" {
 }
 
 test "timeout" {
-    const ms = 20;
-    const margin = 100;
-    const count = 10;
-
     try struct {
-        const Context = @This();
-
         io: IO,
-        timer: Time,
-        count: u32 = 0,
-        stop_time: u64 = 0,
+        time: Time,
+        timeouts_fired: u32 = 0,
+        stop: ?Instant = null,
+
+        const delay: Duration = .ms(20);
+        const timeouts_total = 10;
+
+        const Context = @This();
 
         fn run_test() !void {
             var time_os: TimeOS = .{};
-            const timer = time_os.time();
-            const start_time = timer.monotonic().ns;
             var self: Context = .{
-                .timer = timer,
+                .time = time_os.time(),
                 .io = try IO.init(32, 0),
             };
             defer self.io.deinit();
 
-            var completions: [count]IO.Completion = undefined;
+            const start = self.time.monotonic();
+
+            var completions: [timeouts_total]IO.Completion = undefined;
             for (&completions) |*completion| {
                 self.io.timeout(
                     *Context,
                     &self,
                     timeout_callback,
                     completion,
-                    ms * std.time.ns_per_ms,
+                    delay.ns,
                 );
             }
-            while (self.count < count) try self.io.run();
+            while (self.timeouts_fired < timeouts_total) try self.io.run();
 
             try self.io.run();
-            try testing.expectEqual(@as(u32, count), self.count);
+            try testing.expectEqual(@as(u32, timeouts_total), self.timeouts_fired);
 
-            try testing.expectApproxEqAbs(
-                @as(f64, ms),
-                @as(f64, @floatFromInt((self.stop_time - start_time) / std.time.ns_per_ms)),
-                margin,
-            );
+            const elapsed = start.elapsed(self.stop.?);
+            if (elapsed.ns < delay.ns) {
+                std.log.err("elapsed={} < delay={}", .{ elapsed, delay });
+                return error.TestUnexpectedResult;
+            }
+
+            assert(elapsed.ns >= delay.ns);
+            // We aren't running on RTOSes, and we did observed delays as large as 200ms on CI.
+            // This is unlikely under most normal circumstances though!
+            maybe(elapsed.ns >= delay.ns * 2);
         }
 
         fn timeout_callback(
@@ -331,8 +337,8 @@ test "timeout" {
             _ = completion;
             _ = result catch @panic("timeout error");
 
-            if (self.stop_time == 0) self.stop_time = self.timer.monotonic().ns;
-            self.count += 1;
+            if (self.stop == null) self.stop = self.time.monotonic();
+            self.timeouts_fired += 1;
         }
     }.run_test();
 }
@@ -360,9 +366,8 @@ test "event" {
             self.event = try self.io.open_event();
             defer self.io.close_event(self.event);
 
-            var time_os: TimeOS = .{};
-            const timer = time_os.time();
-            const start = timer.monotonic();
+            var time: TimeOS = .{};
+            const timer = time.monotonic();
 
             // Listen to the event and spawn a thread that triggers the completion after some time.
             self.io.event_listen(self.event, &self.event_completion, on_event);
@@ -376,7 +381,7 @@ test "event" {
             assert(self.count == events_count);
 
             // Make sure at least some time has passed.
-            const elapsed = timer.monotonic().duration_since(start);
+            const elapsed = timer.elapsed(time.monotonic());
             assert(elapsed.ns >= delay);
         }
 
@@ -770,244 +775,91 @@ test "pipe data over socket" {
     }.run();
 }
 
-test "cancel_all" {
-    const checksum = @import("../vsr/checksum.zig").checksum;
-    const allocator = std.testing.allocator;
-    const file_path = "test_cancel_all";
-    const read_count = 8;
-    const read_size = 16 * KiB;
-
-    // For this test to be useful, we rely on open(DIRECT).
-    // (See below).
-    if (builtin.target.os.tag != .linux) return;
-
+test "flush checks timeouts even when completions are queued" {
+    // The invariant this test exercises - that flush_timeouts() runs even
+    // when the completed queue already has items - is specific to the
+    // userspace timeout queue used by Windows and Darwin. On Linux,
+    // timeouts are kernel-managed via io_uring SQEs and a non-blocking
+    // run() does not necessarily dispatch the timeouts. This test is
+    // verifying identical behavior on windows and darwin but leaves
+    // the different linux behavior to future work.
+    if (builtin.target.os.tag == .linux) return error.SkipZigTest;
     try struct {
         const Context = @This();
 
         io: IO,
-        canceled: bool = false,
+        instant_fired: bool = false,
+        timeout_fired: bool = false,
 
         fn run_test() !void {
-            defer std.fs.cwd().deleteFile(file_path) catch {};
+            var self: Context = .{ .io = try IO.init(32, 0) };
+            defer self.io.deinit();
 
-            var context: Context = .{ .io = try IO.init(32, 0) };
-            defer context.io.deinit();
+            // next_tick goes directly into the completed queue.
+            // The 1ns timeout goes into the timeouts queue and expires
+            // immediately on the next flush_timeouts call. If flush
+            // skips flush_timeouts when completed is non-empty, the
+            // 1ns timeout will be stranded.
+            var c1: IO.Completion = undefined;
+            var c2: IO.Completion = undefined;
+            self.io.next_tick(*Context, &self, on_instant, &c1, .vsr);
+            self.io.timeout(*Context, &self, on_timeout, &c2, 1);
 
-            {
-                // Initialize a file filled with test data.
-                const file_buffer = try allocator.alloc(u8, read_size);
-                defer allocator.free(file_buffer);
+            try self.io.run();
 
-                for (file_buffer, 0..) |*b, i| b.* = @intCast(i % 256);
-
-                try std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = file_buffer });
-            }
-
-            var read_completions: [read_count]IO.Completion = undefined;
-            var read_buffers: [read_count][]u8 = undefined;
-            var read_buffer_checksums: [read_count]u128 = undefined;
-            var read_buffers_allocated: u32 = 0;
-            defer for (read_buffers[0..read_buffers_allocated]) |b| allocator.free(b);
-
-            for (&read_buffers) |*read_buffer| {
-                read_buffer.* = try allocator.alloc(u8, read_size);
-                read_buffers_allocated += 1;
-            }
-
-            // Test cancellation:
-            // 1. Re-open the file.
-            // 2. Kick off multiple (async) reads.
-            // 3. Abort the reads (ideally before they can complete, since that is more interesting
-            //    to test).
-            //
-            // The reason to re-open the file with DIRECT is that it slows down the reads enough to
-            // actually test the interesting case -- cancelling an in-flight read and verifying that
-            // the buffer is not written to after `cancel_all()` completes.
-            //
-            // (Without DIRECT the reads all finish their callbacks even before io.run() returns.)
-            const file = try std.posix.open(file_path, .{ .DIRECT = true }, 0);
-            defer std.posix.close(file);
-
-            for (&read_completions, read_buffers) |*completion, buffer| {
-                context.io.read(*Context, &context, read_callback, completion, file, buffer, 0);
-            }
-            try context.io.run();
-
-            // Set to true *before* calling cancel_all() to ensure that any farther callbacks from
-            // IO completion will panic.
-            context.canceled = true;
-
-            context.io.cancel_all();
-
-            // All of the in-flight reads are canceled at this point.
-            // To verify, checksum all of the read buffer memory, then wait and make sure that there
-            // are no farther modifications to the buffers.
-            for (read_buffers, &read_buffer_checksums) |buffer, *buffer_checksum| {
-                buffer_checksum.* = checksum(buffer);
-            }
-
-            const sleep_ms = 50;
-            std.time.sleep(sleep_ms * std.time.ns_per_ms);
-
-            for (read_buffers, read_buffer_checksums) |buffer, buffer_checksum| {
-                try testing.expectEqual(checksum(buffer), buffer_checksum);
-            }
+            try testing.expect(self.instant_fired);
+            try testing.expect(self.timeout_fired);
         }
 
-        fn read_callback(
-            context: *Context,
-            completion: *IO.Completion,
-            result: IO.ReadError!usize,
-        ) void {
-            _ = completion;
-            _ = result catch @panic("read error");
+        fn on_instant(self: *Context, _: *IO.Completion, _: IO.NextTickResult) void {
+            self.instant_fired = true;
+        }
 
-            assert(!context.canceled);
+        fn on_timeout(self: *Context, _: *IO.Completion, result: IO.TimeoutError!void) void {
+            _ = result catch @panic("timeout error");
+            self.timeout_fired = true;
         }
     }.run_test();
 }
 
-test "cancel" {
-    if (builtin.target.os.tag != .linux) return;
+test "chained zero-delay callbacks complete in a single flush" {
     try struct {
         const Context = @This();
 
-        io: *IO,
-        server: posix.socket_t,
-        client: posix.socket_t,
-        accepted_sock: posix.socket_t = undefined,
+        io: IO,
+        count: u32 = 0,
+        completions: [chain_length]IO.Completion = undefined,
 
-        accepted: bool = false,
-        connected: bool = false,
-        canceled: bool = false,
-
-        recv_result: ?IO.RecvError!usize = null,
+        const chain_length = 10;
 
         fn run_test() !void {
-            const allocator = std.testing.allocator;
-            var io = try IO.init(32, 0);
-            defer io.deinit();
+            var self: Context = .{ .io = try IO.init(32, 0) };
+            defer self.io.deinit();
 
-            const buffer_size = 512 * KiB;
+            // Start the chain with a single next_tick.
+            self.io.next_tick(*Context, &self, on_next_tick, &self.completions[0], .vsr);
 
-            const buffer: []u8 = try allocator.alloc(u8, buffer_size);
-            defer allocator.free(buffer);
+            // A single run() calls flush once. If the dispatch loop
+            // drains the live completed queue, each callback's next_tick
+            // successor is picked up in the same pass and the entire
+            // chain completes. If completed were snapshot'd, only the
+            // first link would fire per run() call.
+            try self.io.run();
 
-            const address = try std.net.Address.parseIp4("127.0.0.1", 0);
-
-            const server = try io.open_socket_tcp(address.any.family, tcp_options);
-            defer io.close_socket(server);
-
-            const client = try io.open_socket_tcp(address.any.family, tcp_options);
-            defer io.close_socket(client);
-
-            try posix.setsockopt(
-                server,
-                posix.SOL.SOCKET,
-                posix.SO.REUSEADDR,
-                &std.mem.toBytes(@as(c_int, 1)),
-            );
-            try posix.bind(server, &address.any, address.getOsSockLen());
-            try posix.listen(server, 1);
-
-            var client_address = std.net.Address.initIp4(undefined, undefined);
-            var client_address_len = client_address.getOsSockLen();
-            try posix.getsockname(
-                server,
-                &client_address.any,
-                &client_address_len,
-            );
-
-            var context: Context = .{
-                .io = &io,
-                .server = server,
-                .client = client,
-            };
-
-            var client_completion: IO.Completion = undefined;
-            context.io.connect(
-                *Context,
-                &context,
-                connect_callback,
-                &client_completion,
-                client,
-                client_address,
-            );
-
-            var server_completion: IO.Completion = undefined;
-            context.io.accept(
-                *Context,
-                &context,
-                accept_callback,
-                &server_completion,
-                server,
-            );
-
-            while (!(context.connected and context.accepted)) try context.io.run();
-
-            var recv_completion: IO.Completion = undefined;
-            context.io.recv(
-                *Context,
-                &context,
-                recv_callback,
-                &recv_completion,
-                context.accepted_sock,
-                buffer,
-            );
-            try context.io.run();
-
-            var cancel_completion: IO.Completion = undefined;
-            context.io.cancel(
-                *Context,
-                &context,
-                cancel_callback,
-                .{
-                    .completion = &cancel_completion,
-                    .target = &recv_completion,
-                },
-            );
-
-            while (!context.canceled or context.recv_result == null) try context.io.run();
-
-            try std.testing.expectError(
-                IO.RecvError.Canceled,
-                context.recv_result.?,
-            );
+            try testing.expectEqual(@as(u32, chain_length), self.count);
         }
 
-        fn cancel_callback(
-            self: *Context,
-            _: *IO.Completion,
-            result: IO.CancelError!void,
-        ) void {
-            _ = result catch @panic("cancel error");
-            self.canceled = true;
-        }
-
-        fn connect_callback(
-            self: *Context,
-            _: *IO.Completion,
-            result: IO.ConnectError!void,
-        ) void {
-            _ = result catch @panic("connect error");
-            self.connected = true;
-        }
-
-        fn accept_callback(
-            self: *Context,
-            _: *IO.Completion,
-            result: IO.AcceptError!posix.socket_t,
-        ) void {
-            self.accepted_sock = result catch @panic("accept error");
-            self.accepted = true;
-        }
-
-        fn recv_callback(
-            self: *Context,
-            _: *IO.Completion,
-            result: IO.RecvError!usize,
-        ) void {
-            self.recv_result = result;
+        fn on_next_tick(self: *Context, _: *IO.Completion, _: IO.NextTickResult) void {
+            self.count += 1;
+            if (self.count < chain_length) {
+                self.io.next_tick(
+                    *Context,
+                    self,
+                    on_next_tick,
+                    &self.completions[self.count],
+                    .vsr,
+                );
+            }
         }
     }.run_test();
 }

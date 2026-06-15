@@ -4,14 +4,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const log = std.log;
 
-const Shell = @import("../shell.zig");
-const stdx = @import("./stdx.zig");
+const stdx = @import("stdx");
+const shopify_stdx = @import("./stdx.zig");
 
 /// Open the GitHub compare page for `branch` against `main`, pre-filled with
 /// `title` and `body`. The author reviews/edits in the browser and clicks
 /// "Create pull request" themselves — so the script never opens an unintended PR.
 pub fn open_pr_compare(
-    shell: *Shell,
+    shell: *stdx.Shell,
     allocator: std.mem.Allocator,
     branch: []const u8,
     title: []const u8,
@@ -20,12 +20,12 @@ pub fn open_pr_compare(
     var url_buf = std.ArrayList(u8).init(allocator);
     const url_writer = url_buf.writer();
     try url_writer.writeAll("https://github.com/shop/tigerbeetle/compare/main...");
-    try stdx.query_percent_encode(url_writer, branch);
+    try shopify_stdx.query_percent_encode(url_writer, branch);
     try url_writer.writeAll("?expand=1&title=");
-    try stdx.query_percent_encode(url_writer, title);
+    try shopify_stdx.query_percent_encode(url_writer, title);
     if (body.len > 0) {
         try url_writer.writeAll("&body=");
-        try stdx.query_percent_encode(url_writer, body);
+        try shopify_stdx.query_percent_encode(url_writer, body);
     }
     const url = url_buf.items;
 

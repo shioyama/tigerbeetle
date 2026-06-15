@@ -20,7 +20,7 @@ pub const IO = struct {
 
     kq: fd_t,
     event_id: Event = 0,
-    time_os: TimeOS = .{},
+    time: TimeOS = .{},
     io_inflight: usize = 0,
     timeouts: QueueType(Completion) = QueueType(Completion).init(.{ .name = "io_timeouts" }),
     completed: QueueType(Completion) = QueueType(Completion).init(.{ .name = "io_completed" }),
@@ -63,8 +63,9 @@ pub const IO = struct {
         }
         defer self.stats.trace();
 
-        var timer = try std.time.Timer.start();
-        defer self.stats.window.time_run_for_ns.ns += timer.read();
+        const timer = self.time.monotonic();
+        defer self.stats.window.time_run_for_ns.ns +=
+            timer.elapsed(self.time.monotonic()).ns;
 
         var timed_out = false;
         var completion: Completion = undefined;
@@ -143,14 +144,15 @@ pub const IO = struct {
             }
         }
 
-        var completed = self.completed;
-        self.completed.reset();
-
-        var timer = try std.time.Timer.start();
-        while (completed.pop()) |completion| {
+        // Drain all ready completions. Callbacks may push new completions
+        // (e.g. zero-delay timeouts) which are picked up in the same pass,
+        // matching Linux io_uring behavior (see ba0535354).
+        const timer = self.time.monotonic();
+        while (self.completed.pop()) |completion| {
             (completion.callback)(self, completion);
         }
-        self.stats.window.time_callbacks.ns += timer.read();
+        const elapsed = timer.elapsed(self.time.monotonic());
+        self.stats.window.time_callbacks.ns += elapsed.ns;
     }
 
     fn flush_io(self: *IO, events: []posix.Kevent) usize {
@@ -185,7 +187,7 @@ pub const IO = struct {
         while (timeouts_iterator.next()) |completion| {
 
             // NOTE: We could cache `now` above the loop but monotonic() should be cheap to call.
-            const now = self.time_os.monotonic().ns;
+            const now = self.time.monotonic().ns;
             const expires = completion.operation.timeout.expires;
 
             // NOTE: remove() could be O(1) here with a doubly-linked-list
@@ -315,32 +317,6 @@ pub const IO = struct {
             .timeout => self.timeouts.push(completion),
             else => self.completed.push(completion),
         }
-    }
-
-    pub fn cancel_all(_: *IO) void {
-        // TODO Cancel in-flight async IO and wait for all completions.
-    }
-
-    pub const CancelError = error{
-        NotRunning,
-        NotInterruptable,
-    } || posix.UnexpectedError;
-
-    pub fn cancel(
-        _: *IO,
-        comptime Context: type,
-        _: Context,
-        comptime _: fn (
-            context: Context,
-            completion: *Completion,
-            result: CancelError!void,
-        ) void,
-        _: struct {
-            completion: *Completion,
-            target: *Completion,
-        },
-    ) void {
-        @panic("cancelation is not supported on darwin");
     }
 
     pub const AcceptError = posix.AcceptError || posix.SetSockOptError;
@@ -765,7 +741,7 @@ pub const IO = struct {
             completion,
             .timeout,
             .{
-                .expires = self.time_os.monotonic().ns + nanoseconds,
+                .expires = self.time.monotonic().ns + nanoseconds,
             },
             struct {
                 fn do_operation(_: anytype) TimeoutError!void {

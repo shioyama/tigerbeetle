@@ -9,7 +9,6 @@ const std = @import("std");
 const log = std.log;
 const stdx = @import("stdx");
 
-const Shell = @import("../shell.zig");
 const ChangelogIterator = @import("../scripts/changelog.zig").ChangelogIterator;
 const ReleaseTriple = @import("../multiversion.zig").ReleaseTriple;
 const changelog_parse = @import("./changelog_parse.zig");
@@ -21,7 +20,7 @@ const changelog_bytes_max = 10 * stdx.MiB;
 // (the top `## TigerBeetle ...` header). Fails if the top entry is marked
 // unreleased, so the release script refuses to build a fork release from a
 // changelog that hasn't been finalized.
-pub fn shopify_latest_version(shell: *Shell) ![]const u8 {
+pub fn shopify_latest_version(shell: *stdx.Shell) ![]const u8 {
     const allocator = shell.arena.allocator();
     const text = try shell.project_root.readFileAlloc(
         allocator,
@@ -47,7 +46,7 @@ pub fn shopify_latest_version(shell: *Shell) ![]const u8 {
 // `## TigerBeetle ...` header in SHOPIFY-CHANGELOG.md). Returns `null` when no
 // prior fork release exists, so the caller can fall back to the
 // upstream-derived previous (first fork release on a new upstream base).
-pub fn shopify_previous_version(shell: *Shell) !?[]const u8 {
+pub fn shopify_previous_version(shell: *stdx.Shell) !?[]const u8 {
     const allocator = shell.arena.allocator();
     const text = try shell.project_root.readFileAlloc(
         allocator,
@@ -63,7 +62,7 @@ pub fn shopify_previous_version(shell: *Shell) !?[]const u8 {
 // Validate SHOPIFY-CHANGELOG.md for release readiness and check that the
 // release tag base matches CHANGELOG.md.
 pub fn validate_shopify_release(
-    shell: *Shell,
+    shell: *stdx.Shell,
     release_version: []const u8,
 ) !void {
     const allocator = shell.arena.allocator();
@@ -185,7 +184,7 @@ fn check_shopify_changelog(
 //
 // The check is intentionally light — it does not enforce which sections exist,
 // nor does it parse the link target beyond looking for the URL prefix.
-pub fn validate_shopify_changelog_structure(shell: *Shell) !void {
+pub fn validate_shopify_changelog_structure(shell: *stdx.Shell) !void {
     const allocator = shell.arena.allocator();
     const text = try shell.project_root.readFileAlloc(
         allocator,
