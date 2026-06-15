@@ -11,6 +11,14 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
   Update Shopify fork code to use stdx.Shell following upstream move.
 
+- [#169](https://github.com/shop/tigerbeetle/pull/169)
+
+  Allocate the grid cache backing blocks without Zig's eager undefined-memory
+  fill. Large `--cache-grid` values previously touched the full cache during
+  startup and re-exec, adding ~20s to upgrades with Shopify's production cache
+  size; grid block validity is tracked separately by cache metadata and
+  checksums.
+
 ## TigerBeetle 0.17.4-shopify1
 
 Released: 2026-06-11
