@@ -19,7 +19,7 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 - [#160](https://github.com/shop/tigerbeetle/pull/160)
 
-  Update Shopify fork code to use stdx.Shell following upstream move.
+  Update Shopify fork code to use `stdx.Shell` following upstream move.
 
 ## TigerBeetle 0.17.4-shopify1
 
