@@ -965,6 +965,12 @@ pub fn GridType(comptime Storage: type) type {
             trigger: enum { create, repair },
         ) void {
             const header = schema.header_from_block(block.*);
+            assert(header.size > @sizeOf(vsr.Header));
+            assert(header.size <= constants.block_size);
+            if (constants.verify) {
+                assert(header.valid_checksum());
+                assert(header.valid_checksum_body(block.*[@sizeOf(vsr.Header)..header.size]));
+            }
             assert(header.cluster == grid.superblock.working.cluster);
             assert(header.release.value <=
                 grid.superblock.working.vsr_state.checkpoint.release.value);
@@ -1180,6 +1186,7 @@ pub fn GridType(comptime Storage: type) type {
             const cache_location = grid.cache_locations[cache_index];
             const cache_block = &grid.blocks[cache_location];
             const header = schema.header_from_block(cache_block);
+            if (constants.verify) assert(header.valid_checksum());
             assert(header.address == address);
             assert(header.cluster == grid.superblock.working.cluster);
             assert(header.release.value <=
