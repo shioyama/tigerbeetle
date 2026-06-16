@@ -5,11 +5,7 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ## TigerBeetle (unreleased)
 
-### Fixes
-
-- [#160](https://github.com/shop/tigerbeetle/pull/160)
-
-  Update Shopify fork code to use stdx.Shell following upstream move.
+### Patches
 
 - [#169](https://github.com/shop/tigerbeetle/pull/169)
 
@@ -18,6 +14,12 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   startup and re-exec, adding ~20s to upgrades with Shopify's production cache
   size; grid block validity is tracked separately by cache metadata and
   checksums.
+
+### Fixes
+
+- [#160](https://github.com/shop/tigerbeetle/pull/160)
+
+  Update Shopify fork code to use `stdx.Shell` following upstream move.
 
 ## TigerBeetle 0.17.4-shopify1
 
