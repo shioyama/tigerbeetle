@@ -14,6 +14,13 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   This targets the largest observed contributor to client-visible upgrade
   downtime while preserving the normal steady-state synchronization window.
 
+- [#178](https://github.com/shop/tigerbeetle/pull/178)
+
+  Use a dedicated 100ms clean-upgrade bootstrap ping timeout until the first
+  clock epoch synchronizes, then return to the steady-state `ping_timeout`.
+  This lets the reduced clean-upgrade synchronization window gate availability
+  instead of waiting on the normal 1s ping cadence.
+
 ### Fixes
 
 - [#174](https://github.com/shop/tigerbeetle/pull/174)

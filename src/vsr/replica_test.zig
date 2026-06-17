@@ -1499,15 +1499,46 @@ test "Cluster: upgrade: operation=upgrade near trigger-minus-bar" {
 }
 
 // [shopify]
-test "Cluster: upgrade: WAL skip flag is cleared during startup recovery" {
-    const mark = marks.check("startup recovery: cleared WAL skip flag");
+test "Cluster: upgrade: clean-upgrade flag enables clock bootstrap and is cleared" {
+    const mark = marks.check("startup recovery: cleared clean-upgrade flag");
 
     const t = try TestContext.init(.{ .replica_count = 3 });
     defer t.deinit();
 
     t.replica(.R_).stop();
     try t.replica(.R_).open_upgrade(&[_]u8{ 10, 20 });
+
+    const replica_count = t.cluster.options.replica_count;
+    const bootstrap_seen_mask_expected = (@as(u64, 1) << @intCast(replica_count)) - 1;
+    var bootstrap_seen_mask: u64 = 0;
+    var tick_count: usize = 0;
+    while (tick_count < 8_200 and
+        bootstrap_seen_mask != bootstrap_seen_mask_expected) : (tick_count += 1)
+    {
+        _ = t.tick();
+        for (t.cluster.replicas[0..replica_count], 0..) |*replica, replica_index| {
+            if (!replica.clock_bootstrap_ping) continue;
+
+            bootstrap_seen_mask |= @as(u64, 1) << @intCast(replica_index);
+            try expect(!replica.ping_timeout.ticking);
+            try expect(replica.clock_bootstrap_ping_timeout.ticking);
+            try expectEqual(
+                constants.clock_bootstrap_ping_interval_ticks,
+                replica.clock_bootstrap_ping_timeout.after,
+            );
+        }
+    }
+    try expectEqual(bootstrap_seen_mask_expected, bootstrap_seen_mask);
+
     t.run();
+
+    for (t.cluster.replicas[0..t.cluster.options.replica_count]) |*replica| {
+        try expect(replica.clock.synchronized());
+        try expect(!replica.clock_bootstrap_ping);
+        try expect(!replica.clock_bootstrap_ping_timeout.ticking);
+        try expect(replica.ping_timeout.ticking);
+        try expectEqual(1_000 / constants.tick_ms, replica.ping_timeout.after);
+    }
 
     try expectEqual(t.replica(.R_).release(), 20);
     try expectEqual(t.replica(.R_).storage_superblock_flags(), 0);
@@ -1542,7 +1573,20 @@ test "Cluster: upgrade: R=1" {
 
     t.replica(.R_).stop();
     try t.replica(.R0).open_upgrade(&[_]u8{ 10, 20 });
+
+    {
+        const replica = &t.cluster.replicas[t.replica(.R0).index()];
+        try expect(!replica.clock_bootstrap_ping);
+        try expect(!replica.clock_bootstrap_ping_timeout.ticking);
+    }
+
     t.run();
+
+    {
+        const replica = &t.cluster.replicas[t.replica(.R0).index()];
+        try expect(!replica.clock_bootstrap_ping);
+        try expect(!replica.clock_bootstrap_ping_timeout.ticking);
+    }
 
     try expectEqual(t.replica(.R0).health(), .up);
     try expectEqual(t.replica(.R0).release(), 20);
