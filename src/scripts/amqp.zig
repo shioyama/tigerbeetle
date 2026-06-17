@@ -802,6 +802,7 @@ const VSRContext = struct {
                     .configuration = &.{address},
                     .io = &self.io,
                     .trace = null,
+                    .time = time,
                 },
             },
         );
@@ -877,7 +878,7 @@ const VSRContext = struct {
         user_data: u128,
         operation_vsr: vsr.Operation,
         timestamp: u64,
-        result: []u8,
+        result: []align(vsr.constants.cache_line_size) const u8,
     ) void {
         _ = timestamp;
         const operation = operation_vsr.cast(tb.Operation);
@@ -946,7 +947,7 @@ const TmpRabbitMQ = struct {
                 _, const host = stdx.cut(line, " -> ") orelse continue;
                 // Last index of `:`, because ipv6 can be `[::]:port`.
                 const index = std.mem.lastIndexOfScalar(u8, host, ':') orelse continue;
-                const port = try std.fmt.parseUnsigned(u16, host[index + 1 ..], 10);
+                const port = try stdx.parse_int(u16, host[index + 1 ..], .{});
                 break :host try std.net.Address.parseIp4("127.0.0.1", port);
             }
             try testing.expect(false);
