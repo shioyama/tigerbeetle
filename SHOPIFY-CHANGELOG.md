@@ -21,6 +21,13 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   Update Shopify fork parsing helpers for upstream's `stdx.parse_int` API while
   keeping build-script-only code independent from runtime Zig modules.
 
+### Tooling
+
+- [#173](https://github.com/shop/tigerbeetle/pull/173)
+
+  Limit long-function tidy checks to fork-owned source so Shopify patches do not
+  split upstream functions solely for fork hygiene.
+
 ## TigerBeetle 0.17.5-shopify1
 
 Released: 2026-06-16
