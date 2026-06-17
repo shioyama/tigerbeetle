@@ -458,7 +458,7 @@ fn next_shopify_n(shopify_text: []const u8, base_version: []const u8) u16 {
         const base, const suffix = stdx.cut(version_string, "-shopify") orelse continue;
         if (!std.mem.eql(u8, base, base_version)) continue;
 
-        const n = std.fmt.parseUnsigned(u16, suffix, 10) catch continue;
+        const n = stdx.parse_int(u16, suffix, .{}) catch continue;
         if (n > highest_n) highest_n = n;
     }
     return highest_n + 1;

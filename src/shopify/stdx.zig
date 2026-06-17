@@ -1,6 +1,7 @@
 //! Fork-specific extensions, parallel to upstream's `src/stdx/stdx.zig`.
 
 const std = @import("std");
+const stdx = @import("stdx");
 
 pub fn truthy(val: ?[]const u8) bool {
     const v = val orelse return false;
@@ -39,7 +40,7 @@ pub fn debug_release_n(env_value: ?[]const u8) !?u16 {
 fn numbered_release_suffix(env_value: ?[]const u8, parse_error: anyerror) !?u16 {
     const raw = env_value orelse return null;
     if (raw.len == 0) return null;
-    return std.fmt.parseUnsigned(u16, raw, 10) catch parse_error;
+    return stdx.parse_int(u16, raw, .{}) catch parse_error;
 }
 
 pub const ForkReleaseTag = struct { base: []const u8, n: u16 };
@@ -51,14 +52,14 @@ pub fn parse_fork_release_tag(tag: []const u8) ?ForkReleaseTag {
     const sep = std.mem.indexOf(u8, tag, "-shopify") orelse return null;
     const base = tag[0..sep];
     const n_str = tag[sep + "-shopify".len ..];
-    const n = std.fmt.parseUnsigned(u16, n_str, 10) catch return null;
+    const n = stdx.parse_int(u16, n_str, .{}) catch return null;
 
     var parts = std.mem.splitScalar(u8, base, '.');
     var count: usize = 0;
     while (parts.next()) |part| {
         count += 1;
         if (count > 3) return null;
-        _ = std.fmt.parseUnsigned(u32, part, 10) catch return null;
+        _ = stdx.parse_int(u32, part, .{}) catch return null;
     }
     if (count != 3) return null;
     return .{ .base = base, .n = n };
