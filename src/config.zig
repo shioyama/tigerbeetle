@@ -126,6 +126,7 @@ const ConfigProcess = struct {
     clock_offset_tolerance_max: stdx.Duration = .ms(10000),
     clock_epoch_max: stdx.Duration = .ms(60000),
     clock_synchronization_window_min: stdx.Duration = .ms(2000),
+    clock_synchronization_window_min_clean_upgrade: stdx.Duration = .ms(500),
     clock_synchronization_window_max: stdx.Duration = .ms(20000),
     grid_iops_read_max: u16 = 32,
     grid_iops_write_max: u16 = 32,

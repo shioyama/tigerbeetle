@@ -1,13 +1,13 @@
-//! Runtime lever for the WAL-skip-on-upgrade optimization.
+//! Runtime lever for the clean-upgrade startup fast paths.
 //!
-//! The fork normally sets `SuperBlockHeader.flag_wal_skip_next_recovery` in the trigger
-//! checkpoint written immediately before exec'ing into a new release, so the new binary
-//! can perform fast WAL recovery (header ring only, ~500ms) instead of full body
-//! validation (~seconds of unavailability).
+//! The fork normally sets `SuperBlockHeader.flag_clean_upgrade_next_recovery` in the trigger
+//! checkpoint written immediately before exec'ing into a new release, so the new binary can take
+//! clean-upgrade startup fast paths such as fast WAL recovery (header ring only, ~500ms) instead of
+//! full body validation (~seconds of unavailability).
 //!
-//! `TB_DISABLE_SKIP_WAL_ON_UPGRADE=1` suppresses that flag write. Intended for the rare
-//! case of upgrading to a binary that does not understand the flag (e.g. upstream
-//! TigerBeetle, which asserts `superblock.flags == 0`).
+//! `TB_DISABLE_SKIP_WAL_ON_UPGRADE=1` suppresses that flag write. Intended for the rare case of
+//! upgrading to a binary that does not understand the flag (e.g. upstream TigerBeetle, which
+//! asserts `superblock.flags == 0`).
 //!
 //! Read once at replica init; the static allocator forbids per-checkpoint allocation.
 

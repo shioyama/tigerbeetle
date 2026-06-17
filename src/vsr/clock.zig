@@ -95,6 +95,8 @@ const Tracer = @import("../trace.zig").Tracer;
 const clock_offset_tolerance_max: u64 = constants.clock_offset_tolerance_max.ns;
 const epoch_max: u64 = constants.clock_epoch_max.ns;
 const window_min: u64 = constants.clock_synchronization_window_min.ns;
+const window_min_clean_upgrade: u64 =
+    constants.clock_synchronization_window_min_clean_upgrade.ns;
 const window_max: u64 = constants.clock_synchronization_window_max.ns;
 
 const Marzullo = @import("marzullo.zig").Marzullo;
@@ -184,6 +186,9 @@ marzullo_tuples: []Marzullo.Tuple,
 /// A kill switch to revert to unsynchronized realtime.
 synchronization_disabled: bool,
 
+// [shopify] Clean upgrade restarts can use a shorter first synchronization window.
+initial_synchronization_window_min: u64,
+
 trace: ?*Tracer,
 
 pub fn init(
@@ -225,6 +230,7 @@ pub fn init(
         .marzullo_tuples = marzullo_tuples,
         // A cluster of one cannot synchronize.
         .synchronization_disabled = options.replica_count == 1,
+        .initial_synchronization_window_min = window_min,
 
         .trace = tracer,
     };
@@ -241,6 +247,19 @@ pub fn deinit(self: *Clock, allocator: std.mem.Allocator) void {
     allocator.free(self.epoch.sources);
     allocator.free(self.window.sources);
     allocator.free(self.marzullo_tuples);
+}
+
+// [shopify] Applies until the first synchronized epoch is installed after startup,
+// then resets to the normal window minimum.
+pub fn reduce_initial_synchronization_window_for_clean_upgrade(self: *Clock) void {
+    assert(window_min_clean_upgrade <= window_min);
+    assert(self.epoch.synchronized == null);
+
+    self.initial_synchronization_window_min = window_min_clean_upgrade;
+    log.info("{}: clean upgrade: initial synchronization window reduced to {}", .{
+        self.replica,
+        fmt.fmtDuration(window_min_clean_upgrade),
+    });
 }
 
 /// Called by `Replica.on_pong()` with:
@@ -450,7 +469,11 @@ fn synchronize(self: *Clock) void {
 
     // Wait until the window has enough accurate samples:
     const elapsed = self.window.elapsed(self);
-    if (elapsed < window_min) return;
+    const window_min_active = if (self.epoch.synchronized == null)
+        self.initial_synchronization_window_min
+    else
+        window_min;
+    if (elapsed < window_min_active) return;
     if (elapsed >= window_max) {
         // We took too long to synchronize the window, expire stale samples...
         const sources_sampled = self.window.sources_sampled();
@@ -510,6 +533,11 @@ fn synchronize(self: *Clock) void {
     new_window.reset(self);
     self.epoch = self.window;
     self.window = new_window;
+
+    // [shopify] The clean-upgrade reduction is one-shot: after the first
+    // synchronized epoch is installed, all subsequent windows use the normal
+    // steady-state minimum.
+    self.initial_synchronization_window_min = window_min;
 
     self.after_synchronization();
 }
