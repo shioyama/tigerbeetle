@@ -318,7 +318,7 @@ fn parse_unified_diff_new_start(hunk_header: []const u8) ?usize {
     var rest = hunk_header[plus_index + " +".len ..];
     const end = mem.indexOfAny(u8, rest, ", ") orelse return null;
     rest = rest[0..end];
-    return std.fmt.parseInt(usize, rest, 10) catch null;
+    return stdx.parse_int(usize, rest, .{}) catch null;
 }
 
 fn changelog_release_header_at_line(text: []const u8, target_line: usize) ?[]const u8 {

@@ -108,7 +108,12 @@ pub fn main(
                 .cluster = cluster_id,
                 .replica_count = @intCast(addresses.len),
                 .aof_recovery = false,
-                .message_bus_options = .{ .configuration = addresses, .io = io, .trace = null },
+                .message_bus_options = .{
+                    .configuration = addresses,
+                    .io = io,
+                    .trace = null,
+                    .time = time,
+                },
             },
         ));
     }
@@ -123,14 +128,14 @@ pub fn main(
 
     const client_requests = try allocator.alignedAlloc(
         [constants.message_body_size_max]u8,
-        constants.sector_size,
+        constants.cache_line_size,
         clients.count(),
     );
     defer allocator.free(client_requests);
 
     const client_replies = try allocator.alignedAlloc(
         [constants.message_body_size_max]u8,
-        constants.sector_size,
+        constants.cache_line_size,
         clients.count(),
     );
     defer allocator.free(client_replies);
@@ -335,8 +340,8 @@ const Benchmark = struct {
     // State:
     clients_busy: stdx.BitSetType(constants.clients_max) = .{},
     clients_request_ns: [constants.clients_max]u64 = @splat(undefined),
-    client_requests: []align(constants.sector_size) [constants.message_body_size_max]u8,
-    client_replies: []align(constants.sector_size) [constants.message_body_size_max]u8,
+    client_requests: []align(constants.cache_line_size) [constants.message_body_size_max]u8,
+    client_replies: []align(constants.cache_line_size) [constants.message_body_size_max]u8,
     client_timeouts: []Timeout,
     request_latency_histogram: []u64,
     request_index: u64 = 0,
@@ -870,7 +875,7 @@ const Benchmark = struct {
         user_data: u128,
         operation_vsr: vsr.Operation,
         timestamp: u64,
-        result: []u8,
+        result: []align(constants.cache_line_size) const u8,
     ) void {
         const operation = operation_vsr.cast(tb.Operation);
         const context: RequestContext = @bitCast(user_data);

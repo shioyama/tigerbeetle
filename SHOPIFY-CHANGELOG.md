@@ -3,6 +3,15 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Fixes
+
+- [#174](https://github.com/shop/tigerbeetle/pull/174)
+
+  Update Shopify fork parsing helpers for upstream's `stdx.parse_int` API while
+  keeping build-script-only code independent from runtime Zig modules.
+
 ## TigerBeetle 0.17.5-shopify1
 
 Released: 2026-06-16

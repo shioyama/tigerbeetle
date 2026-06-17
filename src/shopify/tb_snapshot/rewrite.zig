@@ -255,6 +255,7 @@ fn drain_pipeline(
                 .io = io,
                 .clients_limit = null,
                 .trace = &tracer,
+                .time = time,
             },
             .eviction_callback = &drain_eviction_callback,
         },
@@ -295,7 +296,7 @@ fn drain_pipeline(
                 user_data: u128,
                 operation: vsr.Operation,
                 timestamp: u64,
-                results: []u8,
+                results: []align(constants.cache_line_size) const u8,
             ) void {
                 _ = operation;
                 _ = timestamp;

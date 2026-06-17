@@ -1,3 +1,4 @@
+const stdx = @import("stdx");
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -14,6 +15,8 @@ pub const Parser = struct {
     input: []const u8,
     offset: usize = 0,
     terminal: *const Terminal,
+
+    pub const ArgumentsList = std.ArrayListAlignedUnmanaged(u8, constants.cache_line_size);
 
     pub const Error = error{
         IdentifierBad,
@@ -66,7 +69,7 @@ pub const Parser = struct {
 
     pub const Statement = struct {
         operation: Operation,
-        arguments: *std.ArrayListUnmanaged(u8),
+        arguments: *ArgumentsList,
     };
 
     fn print_current_position(parser: *const Parser) !void {
@@ -246,13 +249,11 @@ pub const Parser = struct {
         }
     }
 
+    // Allows 0b/0o/0x prefixes for UUIDs.
+    // Allows -N as a shorthand for INT_MAX - N.
     fn parse_int(comptime T: type, input: []const u8) !T {
         const info = @typeInfo(T);
         comptime assert(info == .int);
-
-        // When base is zero the string prefix is examined to detect the true base:
-        // "0b", "0o" or "0x", otherwise base=10 is assumed.
-        const base_unknown = 0;
 
         assert(input.len > 0);
         const input_negative = input[0] == '-';
@@ -261,16 +262,16 @@ pub const Parser = struct {
             // Negative input means `maxInt - input`.
             // Useful for representing sentinels such as `AMOUNT_MAX`, as `-0`.
             const max = std.math.maxInt(T);
-            return max - try std.fmt.parseUnsigned(T, input[1..], base_unknown);
+            return max - try stdx.parse_int_with_base(T, input[1..]);
         }
 
-        return try std.fmt.parseUnsigned(T, input, base_unknown);
+        return try stdx.parse_int_with_base(T, input);
     }
 
     fn parse_arguments(
         parser: *Parser,
         operation: Operation,
-        arguments: *std.ArrayListUnmanaged(u8),
+        arguments: *ArgumentsList,
     ) !void {
         const default: ObjectSyntaxTree = switch (operation) {
             .help, .none => return,
@@ -422,7 +423,7 @@ pub const Parser = struct {
     pub fn parse_statement(
         input: []const u8,
         terminal: *const Terminal,
-        arguments: *std.ArrayListUnmanaged(u8),
+        arguments: *ArgumentsList,
     ) (error{OutOfMemory} || std.fs.File.WriteError || Error)!Statement {
         var parser = Parser{ .input = input, .terminal = terminal };
         parser.eat_whitespace();
@@ -681,7 +682,7 @@ test "parser.zig: Parser single transfer successfully" {
 
         const allocator = arena.allocator();
 
-        var arguments = try std.ArrayListUnmanaged(u8).initCapacity(
+        var arguments: Parser.ArgumentsList = try .initCapacity(
             allocator,
             constants.message_size_max,
         );
@@ -750,7 +751,7 @@ test "parser.zig: Parser multiple transfers successfully" {
 
         const allocator = arena.allocator();
 
-        var arguments = try std.ArrayListUnmanaged(u8).initCapacity(
+        var arguments: Parser.ArgumentsList = try .initCapacity(
             allocator,
             constants.message_size_max,
         );
@@ -849,7 +850,7 @@ test "parser.zig: Parser single account successfully" {
 
         const allocator = arena.allocator();
 
-        var arguments = try std.ArrayListUnmanaged(u8).initCapacity(
+        var arguments: Parser.ArgumentsList = try .initCapacity(
             allocator,
             constants.message_size_max,
         );
@@ -927,7 +928,7 @@ test "parser.zig: Parser account filter successfully" {
 
         const allocator = arena.allocator();
 
-        var arguments = try std.ArrayListUnmanaged(u8).initCapacity(
+        var arguments: Parser.ArgumentsList = try .initCapacity(
             allocator,
             constants.message_size_max,
         );
@@ -1001,7 +1002,7 @@ test "parser.zig: Parser query filter successfully" {
 
         const allocator = arena.allocator();
 
-        var arguments = try std.ArrayListUnmanaged(u8).initCapacity(
+        var arguments: Parser.ArgumentsList = try .initCapacity(
             allocator,
             constants.message_size_max,
         );
@@ -1070,7 +1071,7 @@ test "parser.zig: Parser multiple accounts successfully" {
 
         const allocator = arena.allocator();
 
-        var arguments = try std.ArrayListUnmanaged(u8).initCapacity(
+        var arguments: Parser.ArgumentsList = try .initCapacity(
             allocator,
             constants.message_size_max,
         );
@@ -1209,7 +1210,7 @@ test "parser.zig: Parser odd but correct formatting" {
 
         const allocator = arena.allocator();
 
-        var arguments = try std.ArrayListUnmanaged(u8).initCapacity(
+        var arguments: Parser.ArgumentsList = try .initCapacity(
             allocator,
             constants.message_size_max,
         );
@@ -1295,7 +1296,7 @@ test "parser.zig: Handle parsing errors" {
 
         const allocator = arena.allocator();
 
-        var arguments = try std.ArrayListUnmanaged(u8).initCapacity(
+        var arguments: Parser.ArgumentsList = try .initCapacity(
             allocator,
             constants.message_size_max,
         );
@@ -1339,7 +1340,7 @@ test "parser.zig: Parser fails for operations not supporting multiple objects" {
 
         const allocator = arena.allocator();
 
-        var arguments = try std.ArrayListUnmanaged(u8).initCapacity(
+        var arguments: Parser.ArgumentsList = try .initCapacity(
             allocator,
             constants.message_size_max,
         );

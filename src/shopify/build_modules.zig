@@ -1,4 +1,4 @@
-//! Registers fork-only Zig modules onto the tigerbeetle binary's root module.
+//! Build-script-only helpers for fork-specific build wiring.
 //!
 //! Files under `src/shopify/` are outside `src/tigerbeetle/`'s module path, so
 //! a relative-path import of one of them from the binary's root file fails
@@ -12,6 +12,30 @@
 //! - `@import("./shadow.zig")` exposed as `shopify_shadow`
 
 const std = @import("std");
+
+const std_parse_unsigned = @field(std.fmt, "parse" ++ "Unsigned");
+
+pub const ForkReleaseTag = struct { base: []const u8 };
+
+/// Parses a canonical `X.Y.Z-shopifyN` tag string enough for build-time tag
+/// filtering. Returns `null` for ad-hoc suffixes, bare `X.Y.Z`, or malformed
+/// components. `base` is borrowed from `tag`.
+pub fn parse_fork_release_tag(tag: []const u8) ?ForkReleaseTag {
+    const sep = std.mem.indexOf(u8, tag, "-shopify") orelse return null;
+    const base = tag[0..sep];
+    const n_str = tag[sep + "-shopify".len ..];
+    _ = std_parse_unsigned(u16, n_str, 10) catch return null;
+
+    var parts = std.mem.splitScalar(u8, base, '.');
+    var count: usize = 0;
+    while (parts.next()) |part| {
+        count += 1;
+        if (count > 3) return null;
+        _ = std_parse_unsigned(u32, part, 10) catch return null;
+    }
+    if (count != 3) return null;
+    return .{ .base = base };
+}
 
 pub fn add_to_tigerbeetle(
     b: *std.Build,

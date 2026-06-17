@@ -308,7 +308,6 @@ pub fn ContextType(
                 error.AddressDuplicate,
                 error.AddressInvalid,
                 error.PortInvalid,
-                error.PortOverflow,
                 => error.AddressInvalid,
             };
             assert(addresses_parsed.len > 0);
@@ -351,6 +350,7 @@ pub fn ContextType(
                         .configuration = context.addresses.const_slice(),
                         .io = &context.io,
                         .trace = null,
+                        .time = time,
                     },
                     .eviction_callback = client_eviction_callback,
                 },
@@ -856,7 +856,7 @@ pub fn ContextType(
             raw_user_data: u128,
             operation_vsr: vsr.Operation,
             timestamp: u64,
-            reply: []const u8,
+            reply: []align(constants.cache_line_size) const u8,
         ) void {
             assert(thread_caller == .io);
 

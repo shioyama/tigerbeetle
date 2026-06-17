@@ -279,7 +279,7 @@ pub fn parse_shopify_version(version: []const u8) ?u64 {
     const base, const suffix = stdx.cut(version, "-shopify") orelse
         return null;
     const triple = ReleaseTriple.parse(base) catch return null;
-    const n = std.fmt.parseUnsigned(u16, suffix, 10) catch
+    const n = stdx.parse_int(u16, suffix, .{}) catch
         return null;
     return @as(u64, triple.major) << 32 |
         @as(u64, triple.minor) << 24 |

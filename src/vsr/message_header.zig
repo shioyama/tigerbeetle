@@ -70,6 +70,7 @@ pub const Header = extern struct {
 
     comptime {
         assert(@sizeOf(Header) == 256);
+        assert(@alignOf(Header) == 16);
         assert(stdx.no_padding(Header));
         assert(@offsetOf(Header, "reserved_command") % @sizeOf(u256) == 0);
     }
@@ -491,7 +492,9 @@ pub const Header = extern struct {
 
         client: u128,
         ping_timestamp_monotonic: u64,
-        reserved: [104]u8 = @splat(0),
+        // NB: Introduced in 0.17.6, and was implicitly 0 before that.
+        session: u64,
+        reserved: [96]u8 = @splat(0),
 
         pub const frame = HeaderFunctionsType(@This()).frame;
         pub const frame_const = HeaderFunctionsType(@This()).frame_const;

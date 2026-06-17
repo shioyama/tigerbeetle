@@ -6,7 +6,6 @@ const builtin = @import("builtin");
 const shopify_tb_snapshot = @import("src/shopify/tb_snapshot/build.zig");
 const shopify_tb_datafile = @import("src/shopify/tb_datafile/build.zig");
 const shopify_build_modules = @import("src/shopify/build_modules.zig");
-const shopify_stdx = @import("src/shopify/stdx.zig");
 
 const assert = std.debug.assert;
 const Query = std.Target.Query;
@@ -1657,7 +1656,7 @@ fn shopify_filter_fork_tags(b: *std.Build, tags_string: []const u8) []const u8 {
     var it = std.mem.splitScalar(u8, tags_string, '\n');
     while (it.next()) |tag| {
         if (std.mem.indexOf(u8, tag, "-shopify") != null) {
-            const parsed = shopify_stdx.parse_fork_release_tag(tag) orelse continue;
+            const parsed = shopify_build_modules.parse_fork_release_tag(tag) orelse continue;
             const gop = seen_bases.getOrPut(b.allocator, parsed.base) catch @panic("OOM");
             if (gop.found_existing) continue;
             const local_path = b.fmt(".fork-bins/{s}/tigerbeetle", .{tag});

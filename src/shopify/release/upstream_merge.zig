@@ -261,9 +261,9 @@ fn parse_triple(s: []const u8) ?Triple {
     const patch_s = it.next() orelse return null;
     if (it.next() != null) return null;
     return .{
-        .major = std.fmt.parseUnsigned(u32, major_s, 10) catch return null,
-        .minor = std.fmt.parseUnsigned(u32, minor_s, 10) catch return null,
-        .patch = std.fmt.parseUnsigned(u32, patch_s, 10) catch return null,
+        .major = stdx.parse_int(u32, major_s, .{}) catch return null,
+        .minor = stdx.parse_int(u32, minor_s, .{}) catch return null,
+        .patch = stdx.parse_int(u32, patch_s, .{}) catch return null,
     };
 }
 
