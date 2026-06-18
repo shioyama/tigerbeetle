@@ -1089,7 +1089,7 @@ pub fn ReplicaType(
             );
             assert(!self.opened);
             assert(self.superblock.working.flags == 0);
-            log.mark.info("{}: startup recovery: cleared WAL skip flag", .{self.log_prefix()});
+            log.mark.info("{}: startup recovery: cleared clean-upgrade flag", .{self.log_prefix()});
             self.opened = true;
         }
 
