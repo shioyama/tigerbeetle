@@ -730,6 +730,10 @@ fn tidy_ast(
         .max = 73,
     };
 
+    // [shopify] Keep function-length tidy for fork-owned code, but don't force
+    // fork-only splits when upstream-owned functions drift past the threshold.
+    if (!std.mem.startsWith(u8, file.path, "src/shopify/")) return;
+
     for (functions[0..functions_count], 0..) |f, index| {
         // Functions are sorted by the start line.
         if (index > 0) assert(functions[index - 1].line_opening < f.line_opening);

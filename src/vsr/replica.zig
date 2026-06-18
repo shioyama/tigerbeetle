@@ -854,11 +854,12 @@ pub fn ReplicaType(
 
             self.opened = false;
             // [shopify] Upstream unconditionally calls `self.journal.recover(...)`. The
-            // flag_wal_skip_next_recovery bit is set by an upgrade checkpoint to opt into the fast
-            // header-only recovery path.
-            const skip_wal = self.superblock.working.flags &
-                vsr.superblock.SuperBlockHeader.flag_wal_skip_next_recovery != 0;
-            if (skip_wal) {
+            // flag_clean_upgrade_next_recovery bit is set by an upgrade checkpoint that marks a
+            // clean upgrade restart and opts into clean-upgrade startup fast paths.
+            const clean_upgrade_restart = self.superblock.working.flags &
+                vsr.superblock.SuperBlockHeader.flag_clean_upgrade_next_recovery != 0;
+            if (clean_upgrade_restart) {
+                self.clock.reduce_initial_synchronization_window_for_clean_upgrade();
                 log.info("{}: open: skipping WAL recovery (clean upgrade)", .{self.log_prefix()});
                 self.journal.recover_fast(journal_recover_callback);
             } else {
@@ -866,11 +867,11 @@ pub fn ReplicaType(
             }
             while (!self.opened) self.superblock.storage.run();
 
-            // [shopify] The WAL-skip flag is one-shot. Clear it durably before returning to
-            // service so a later crash cannot take the fast path for post-upgrade WAL writes.
-            if (skip_wal) {
+            // [shopify] The clean-upgrade flag is one-shot. Clear it durably before returning to
+            // service so a later crash cannot take startup fast paths for post-upgrade WAL writes.
+            if (clean_upgrade_restart) {
                 assert(self.superblock.working.flags &
-                    vsr.superblock.SuperBlockHeader.flag_wal_skip_next_recovery != 0);
+                    vsr.superblock.SuperBlockHeader.flag_clean_upgrade_next_recovery != 0);
                 self.opened = false;
                 self.superblock.update_flags(
                     superblock_update_flags_callback,
@@ -996,14 +997,14 @@ pub fn ReplicaType(
                 self.log_view += 1;
                 self.view += 1;
                 // [shopify] Upstream unconditionally calls `self.primary_update_view_headers()`.
-                // After a clean upgrade WAL skip, self.view_headers was initialized from the
+                // After a clean upgrade restart, self.view_headers was initialized from the
                 // upgrade checkpoint's superblock in init() and already contains the head op.
                 // The journal has only reserved headers so find_latest_headers_break_between
                 // would report a full-journal break and fail primary_update_view_headers.
                 // The superblock view_headers are correct and sufficient for view_durable_update.
-                if (skip_wal) {
+                if (clean_upgrade_restart) {
                     log.mark.info(
-                        "{}: startup recovery: WAL skip uses checkpoint view_headers",
+                        "{}: startup recovery: clean upgrade uses checkpoint view_headers",
                         .{self.log_prefix()},
                     );
                 } else {
@@ -5466,29 +5467,29 @@ pub fn ReplicaType(
                 self.log_view_durable(),
                 self.log_view,
             });
-            // [shopify] Only set the skip flag if the WAL is already locally clean. Runtime
-            // upgrade is an exec boundary, so any in-flight WAL repair/append would otherwise be
-            // skipped by the new binary's header-only recovery path.
+            // [shopify] Only set the clean-upgrade flag if the WAL is already locally clean.
+            // Runtime upgrade is an exec boundary, so any in-flight WAL repair/append would
+            // otherwise be skipped by the new binary's header-only recovery path.
             const next_release = self.release_for_next_checkpoint().?;
             const is_upgrade = next_release.value != self.release.value;
-            const wal_skip_next_recovery = self.wal_skip_on_upgrade_enabled and is_upgrade and
+            const clean_upgrade_next_recovery = self.wal_skip_on_upgrade_enabled and is_upgrade and
                 self.wal_clean_for_fast_recovery();
-            const include_view_headers = !self.solo() or wal_skip_next_recovery;
-            if (self.solo() and is_upgrade and !wal_skip_next_recovery) {
+            const include_view_headers = !self.solo() or clean_upgrade_next_recovery;
+            if (self.solo() and is_upgrade and !clean_upgrade_next_recovery) {
                 log.mark.info(
                     "{}: commit_checkpoint_superblock: solo upgrade checkpoint omits " ++
                         "view_headers",
                     .{self.log_prefix()},
                 );
             }
-            if (wal_skip_next_recovery) {
+            if (clean_upgrade_next_recovery) {
                 assert(is_upgrade);
                 assert(self.wal_skip_on_upgrade_enabled);
                 assert(self.journal.dirty.count == 0);
                 assert(self.journal.faulty.count == 0);
                 assert(self.journal.writes.executing() == 0);
             }
-            if (self.solo()) assert(include_view_headers == wal_skip_next_recovery);
+            if (self.solo()) assert(include_view_headers == clean_upgrade_next_recovery);
 
             self.superblock.checkpoint(
                 commit_checkpoint_superblock_callback,
@@ -5499,7 +5500,7 @@ pub fn ReplicaType(
                         // [shopify] Upstream gates view_headers purely on `self.solo()`.
                         // Solo replicas normally exclude view_headers to avoid referencing ops not
                         // yet durable in their journal. The exception is checkpoints that set the
-                        // WAL-skip flag: solo startup recovery then skips
+                        // clean-upgrade flag: solo startup recovery then skips
                         // primary_update_view_headers() and immediately persists a view/log_view
                         // update, so the checkpoint must already carry view_headers valid for the
                         // new checkpoint head.
@@ -5527,11 +5528,11 @@ pub fn ReplicaType(
                         .client_sessions_checkpoint.checkpoint_reference(),
                     .storage_size = storage_size,
                     .release = next_release,
-                    // [shopify] Signal the new binary to skip WAL recovery after exec().
-                    // Suppressed when `TB_DISABLE_SKIP_WAL_ON_UPGRADE=1`, the operator lever for
-                    // upgrading to a binary that doesn't understand the flag.
-                    .flags = if (wal_skip_next_recovery)
-                        vsr.superblock.SuperBlockHeader.flag_wal_skip_next_recovery
+                    // [shopify] Signal the new binary to take clean-upgrade startup fast paths
+                    // after exec(). Suppressed when `TB_DISABLE_SKIP_WAL_ON_UPGRADE=1`, the
+                    // operator lever for upgrading to a binary that doesn't understand the flag.
+                    .flags = if (clean_upgrade_next_recovery)
+                        vsr.superblock.SuperBlockHeader.flag_clean_upgrade_next_recovery
                     else
                         0,
                 },

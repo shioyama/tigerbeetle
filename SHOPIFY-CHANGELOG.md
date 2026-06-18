@@ -5,12 +5,28 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ## TigerBeetle (unreleased)
 
+### Patches
+
+- [#173](https://github.com/shop/tigerbeetle/pull/173)
+
+  Shorten the initial clock synchronization window after clean upgrade restarts
+  from two seconds to 500ms, gated by the existing clean-upgrade checkpoint flag.
+  This targets the largest observed contributor to client-visible upgrade
+  downtime while preserving the normal steady-state synchronization window.
+
 ### Fixes
 
 - [#174](https://github.com/shop/tigerbeetle/pull/174)
 
   Update Shopify fork parsing helpers for upstream's `stdx.parse_int` API while
   keeping build-script-only code independent from runtime Zig modules.
+
+### Tooling
+
+- [#173](https://github.com/shop/tigerbeetle/pull/173)
+
+  Limit long-function tidy checks to fork-owned source so Shopify patches do not
+  split upstream functions solely for fork hygiene.
 
 ## TigerBeetle 0.17.5-shopify1
 

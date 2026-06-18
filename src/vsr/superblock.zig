@@ -397,10 +397,11 @@ pub const SuperBlockHeader = extern struct {
     };
 
     // [shopify]
-    /// Set by an upgrade checkpoint to allow the new binary to skip WAL recovery.
-    /// Cleared durably during the new binary's startup recovery before it returns to service.
+    /// Set by an upgrade checkpoint to allow the new binary to take clean-upgrade startup
+    /// fast paths. Cleared durably during the new binary's startup recovery before it returns
+    /// to service.
     /// Bit 63: fork-claimed bits grow downwards from the high end to leave room for upstream.
-    pub const flag_wal_skip_next_recovery: u64 = 1 << 63;
+    pub const flag_clean_upgrade_next_recovery: u64 = 1 << 63;
 
     pub fn calculate_checksum(superblock: *const SuperBlockHeader) u128 {
         comptime assert(meta.fieldIndex(SuperBlockHeader, "checksum") == 0);
@@ -429,9 +430,9 @@ pub const SuperBlockHeader = extern struct {
 
         assert(superblock.version == SuperBlockVersion);
         assert(superblock.release_format.value > 0);
-        // [shopify] Only flag_wal_skip_next_recovery is currently defined; all other flag bits
-        // must be zero. (Upstream: `assert(superblock.flags == 0);`.)
-        assert(superblock.flags & ~SuperBlockHeader.flag_wal_skip_next_recovery == 0);
+        // [shopify] Only flag_clean_upgrade_next_recovery is currently defined; all other flag
+        // bits must be zero. (Upstream: `assert(superblock.flags == 0);`.)
+        assert(superblock.flags & ~SuperBlockHeader.flag_clean_upgrade_next_recovery == 0);
 
         assert(stdx.zeroed(&superblock.reserved));
         assert(stdx.zeroed(&superblock.vsr_state.reserved));
@@ -678,7 +679,7 @@ pub fn SuperBlockType(comptime Storage: type) type {
             repairs: ?Quorums.RepairIterator = null, // Used by open().
             // [shopify]
             /// SuperBlockHeader.flags to write. Defaults to 0 (clears any existing flags).
-            /// Set to flag_wal_skip_next_recovery for upgrade checkpoints.
+            /// Set to flag_clean_upgrade_next_recovery for clean upgrade checkpoints.
             flags: u64 = 0,
         };
 
@@ -899,7 +900,7 @@ pub fn SuperBlockType(comptime Storage: type) type {
             release: vsr.Release,
             // [shopify]
             /// SuperBlockHeader.flags to embed in this checkpoint.
-            /// Set to flag_wal_skip_next_recovery for upgrade checkpoints.
+            /// Set to flag_clean_upgrade_next_recovery for clean upgrade checkpoints.
             flags: u64 = 0,
         };
 

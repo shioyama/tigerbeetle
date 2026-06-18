@@ -762,6 +762,10 @@ pub const clock_epoch_max = config.process.clock_epoch_max;
 /// complete.
 pub const clock_synchronization_window_min = config.process.clock_synchronization_window_min;
 
+/// [shopify] The reduced initial synchronization window for clean upgrade restarts.
+pub const clock_synchronization_window_min_clean_upgrade =
+    config.process.clock_synchronization_window_min_clean_upgrade;
+
 /// The amount of time without agreement before the clock window is expired and a new window opened.
 /// This happens where some samples have been collected but not enough to reach agreement.
 /// The quality of samples degrades as they age so at some point we throw them away and start over.
