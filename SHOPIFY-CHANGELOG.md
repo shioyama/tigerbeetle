@@ -19,7 +19,8 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   Use a dedicated 100ms clean-upgrade bootstrap ping timeout until the first
   clock epoch synchronizes, then return to the steady-state `ping_timeout`.
   This lets the reduced clean-upgrade synchronization window gate availability
-  instead of waiting on the normal 1s ping cadence.
+  instead of waiting on the normal 1s ping cadence. Rename the override env var
+  to `TB_DISABLE_CLEAN_UPGRADE_FAST_PATHS` to match the broader flag semantics.
 
 ### Fixes
 
@@ -84,12 +85,12 @@ Released: 2026-06-09
 - [#97](https://github.com/shop/tigerbeetle/pull/97)
 
   Skip WAL integrity checks on upgrade when the prior binary performed a clean
-  checkpoint. Gated by `SuperBlockHeader.flag_wal_skip_next_recovery` (bit 63),
+  checkpoint. Gated by `SuperBlockHeader.flag_clean_upgrade_next_recovery` (bit 63),
   which the upgrading binary sets in its final checkpoint only when the local
   WAL has no dirty, faulty, or in-flight writes. The new binary clears the flag
   durably during startup recovery before returning to service. Cuts post-upgrade
   unavailability from several seconds to ~500ms. Set
-  `TB_DISABLE_SKIP_WAL_ON_UPGRADE=1` to suppress the flag write
+  `TB_DISABLE_CLEAN_UPGRADE_FAST_PATHS=1` to suppress the flag write
   when upgrading to a binary that doesn't understand it (e.g. upstream, which
   asserts `flags == 0`).
 

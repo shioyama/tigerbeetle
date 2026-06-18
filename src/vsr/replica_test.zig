@@ -1546,7 +1546,7 @@ test "Cluster: upgrade: clean-upgrade flag enables clock bootstrap and is cleare
 }
 
 // [shopify]
-test "Cluster: upgrade: R=1 omits view_headers when WAL skip is disabled" {
+test "Cluster: upgrade: R=1 omits view_headers when clean-upgrade fast paths are disabled" {
     const mark = marks.check("solo upgrade checkpoint omits view_headers");
 
     const t = try TestContext.init(.{ .replica_count = 1 });
@@ -1554,7 +1554,7 @@ test "Cluster: upgrade: R=1 omits view_headers when WAL skip is disabled" {
 
     t.replica(.R_).stop();
     try t.replica(.R0).open_upgrade(&[_]u8{ 10, 20 });
-    t.cluster.replicas[t.replica(.R0).index()].wal_skip_on_upgrade_enabled = false;
+    t.cluster.replicas[t.replica(.R0).index()].clean_upgrade_fast_paths_enabled = false;
     t.run();
 
     try expectEqual(t.replica(.R0).health(), .up);

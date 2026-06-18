@@ -28,7 +28,7 @@ const RepairBudgetGrid = @import("repair_budget.zig").RepairBudgetGrid;
 const Multiversion = @import("../multiversion.zig").Multiversion;
 
 // [shopify]
-const shopify_wal_skip = @import("../shopify/wal_skip.zig");
+const shopify_clean_upgrade = @import("../shopify/clean_upgrade.zig");
 
 const marks = @import("../testing/marks.zig");
 
@@ -670,10 +670,10 @@ pub fn ReplicaType(
         aof: ?*AOF,
         aof_recovery: bool,
 
-        // [shopify] Lever for the WAL-skip-on-upgrade optimization. Read once from
-        // `TB_DISABLE_SKIP_WAL_ON_UPGRADE` at init; the static allocator forbids
-        // per-checkpoint env lookups. See `src/shopify/wal_skip.zig`.
-        wal_skip_on_upgrade_enabled: bool,
+        // [shopify] Lever for the clean-upgrade startup fast paths. Read once from
+        // `TB_DISABLE_CLEAN_UPGRADE_FAST_PATHS` at init; the static allocator forbids
+        // per-checkpoint env lookups. See `src/shopify/clean_upgrade.zig`.
+        clean_upgrade_fast_paths_enabled: bool,
 
         const OpenOptions = struct {
             node_count: u8,
@@ -828,14 +828,15 @@ pub fn ReplicaType(
                 },
             );
 
-            // [shopify] Read the WAL-skip lever once; the env var is the operator's
-            // override for known-incompatible upgrade targets (e.g. upstream). Must be
+            // [shopify] Read the clean-upgrade fast-paths lever once; the env var is the
+            // operator's override for known-incompatible upgrade targets (e.g. upstream). Must be
             // captured before the static allocator forbids further allocation.
-            self.wal_skip_on_upgrade_enabled = shopify_wal_skip.enabled_from_env(allocator);
-            if (!self.wal_skip_on_upgrade_enabled) {
-                log.info("{}: {s}=1; WAL skip on upgrade disabled", .{
+            self.clean_upgrade_fast_paths_enabled =
+                shopify_clean_upgrade.enabled_from_env(allocator);
+            if (!self.clean_upgrade_fast_paths_enabled) {
+                log.info("{}: {s}=1; clean-upgrade fast paths disabled", .{
                     self.log_prefix(),
-                    shopify_wal_skip.env_var,
+                    shopify_clean_upgrade.env_var,
                 });
             }
 
@@ -1633,7 +1634,7 @@ pub fn ReplicaType(
                 .aof_recovery = options.aof_recovery,
                 // [shopify] Set by `open()` after `init()` returns, while the static
                 // allocator still permits env-var reads.
-                .wal_skip_on_upgrade_enabled = undefined,
+                .clean_upgrade_fast_paths_enabled = undefined,
             };
 
             log.info("{}: init: replica_count={} quorum_view_change={} quorum_replication={} " ++
@@ -5523,8 +5524,8 @@ pub fn ReplicaType(
             // otherwise be skipped by the new binary's header-only recovery path.
             const next_release = self.release_for_next_checkpoint().?;
             const is_upgrade = next_release.value != self.release.value;
-            const clean_upgrade_next_recovery = self.wal_skip_on_upgrade_enabled and is_upgrade and
-                self.wal_clean_for_fast_recovery();
+            const clean_upgrade_next_recovery = self.clean_upgrade_fast_paths_enabled and
+                is_upgrade and self.wal_clean_for_fast_recovery();
             const include_view_headers = !self.solo() or clean_upgrade_next_recovery;
             if (self.solo() and is_upgrade and !clean_upgrade_next_recovery) {
                 log.mark.info(
@@ -5535,7 +5536,7 @@ pub fn ReplicaType(
             }
             if (clean_upgrade_next_recovery) {
                 assert(is_upgrade);
-                assert(self.wal_skip_on_upgrade_enabled);
+                assert(self.clean_upgrade_fast_paths_enabled);
                 assert(self.journal.dirty.count == 0);
                 assert(self.journal.faulty.count == 0);
                 assert(self.journal.writes.executing() == 0);
@@ -5580,7 +5581,7 @@ pub fn ReplicaType(
                     .storage_size = storage_size,
                     .release = next_release,
                     // [shopify] Signal the new binary to take clean-upgrade startup fast paths
-                    // after exec(). Suppressed when `TB_DISABLE_SKIP_WAL_ON_UPGRADE=1`, the
+                    // after exec(). Suppressed when `TB_DISABLE_CLEAN_UPGRADE_FAST_PATHS=1`, the
                     // operator lever for upgrading to a binary that doesn't understand the flag.
                     .flags = if (clean_upgrade_next_recovery)
                         vsr.superblock.SuperBlockHeader.flag_clean_upgrade_next_recovery
@@ -11274,7 +11275,7 @@ pub fn ReplicaType(
             }
 
             log.warn(
-                "{}: commit_checkpoint_superblock: WAL skip on upgrade disabled; " ++
+                "{}: commit_checkpoint_superblock: clean-upgrade fast paths disabled; " ++
                     "dirty={} faulty={} writes_executing={}",
                 .{ self.log_prefix(), dirty_count, faulty_count, writes_executing },
             );
