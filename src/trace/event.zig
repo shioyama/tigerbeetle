@@ -165,6 +165,9 @@ pub const Event = union(enum) {
 
     metrics_emit,
 
+    // [shopify]
+    upgrade_restart: struct { to_major: u16, to_minor: u8, to_patch: u8 },
+
     client_request_round_trip: EventOperationData,
 
     loop_run_for_ns,
@@ -245,6 +248,9 @@ pub const EventTiming = union(Event.Tag) {
 
     metrics_emit,
 
+    // [shopify]
+    upgrade_restart: struct { to_major: u16, to_minor: u8, to_patch: u8 },
+
     client_request_round_trip: EventOperationData,
 
     loop_run_for_ns,
@@ -272,6 +278,7 @@ pub const EventTiming = union(Event.Tag) {
         .grid_read = 1,
         .grid_write = 1,
         .metrics_emit = 1,
+        .upgrade_restart = 1, // [shopify]
         .storage_read = enum_count(Zone),
         .storage_write = enum_count(Zone),
         .client_request_round_trip = enum_count(Operation),
@@ -357,6 +364,10 @@ pub const EventTiming = union(Event.Tag) {
 
                 return slot_bases.get(event.*) + offset;
             },
+            .upgrade_restart => { // [shopify]
+                comptime assert(slot_limits.get(.upgrade_restart) == 1);
+                return comptime slot_bases.get(.upgrade_restart);
+            },
             inline else => |data, event_tag| {
                 comptime assert(@TypeOf(data) == void);
                 comptime assert(slot_limits.get(event_tag) == 1);
@@ -411,6 +422,9 @@ pub const EventTracing = union(Event.Tag) {
 
     metrics_emit,
 
+    // [shopify]
+    upgrade_restart,
+
     client_request_round_trip,
 
     loop_run_for_ns,
@@ -440,6 +454,7 @@ pub const EventTracing = union(Event.Tag) {
         .storage_read = 1,
         .storage_write = 1,
         .metrics_emit = 1,
+        .upgrade_restart = 1, // [shopify]
         .client_request_round_trip = 1,
         .loop_run_for_ns = 1,
         .loop_tick = 1,
@@ -829,6 +844,13 @@ test "EventTiming slot doesn't have collisions" {
             .storage_read => .{ .storage_read = .{ .zone = g.enum_value(Zone) } },
             .storage_write => .{ .storage_write = .{ .zone = g.enum_value(Zone) } },
             .metrics_emit => .metrics_emit,
+            .upgrade_restart => .{
+                .upgrade_restart = .{ // [shopify]
+                    .to_major = 0,
+                    .to_minor = 0,
+                    .to_patch = 0,
+                },
+            },
             .client_request_round_trip => .{ .client_request_round_trip = .{
                 .operation = g.enum_value(Operation),
             } },
