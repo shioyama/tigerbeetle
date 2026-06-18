@@ -28,7 +28,7 @@ const RepairBudgetGrid = @import("repair_budget.zig").RepairBudgetGrid;
 const Multiversion = @import("../multiversion.zig").Multiversion;
 
 // [shopify]
-const shopify_wal_skip = @import("../shopify/wal_skip.zig");
+const shopify_clean_upgrade = @import("../shopify/clean_upgrade.zig");
 
 const marks = @import("../testing/marks.zig");
 
@@ -563,6 +563,14 @@ pub fn ReplicaType(
         /// (always running)
         ping_timeout: Timeout,
 
+        /// [shopify] Clean-upgrade-only ping timeout used until the first synchronized epoch.
+        clock_bootstrap_ping_timeout: Timeout,
+
+        /// [shopify] Set while a clean-upgrade replica uses `clock_bootstrap_ping_timeout` so the
+        /// reduced clean-upgrade window gates the first synchronized epoch. Cleared back to the
+        /// steady-state `ping_timeout` once the clock synchronizes.
+        clock_bootstrap_ping: bool = false,
+
         /// The number of ticks without enough prepare_ok's before the primary resends a prepare.
         /// (status=normal primary, pipeline has prepare with !ok_quorum_received)
         prepare_timeout: Timeout,
@@ -662,10 +670,10 @@ pub fn ReplicaType(
         aof: ?*AOF,
         aof_recovery: bool,
 
-        // [shopify] Lever for the WAL-skip-on-upgrade optimization. Read once from
-        // `TB_DISABLE_SKIP_WAL_ON_UPGRADE` at init; the static allocator forbids
-        // per-checkpoint env lookups. See `src/shopify/wal_skip.zig`.
-        wal_skip_on_upgrade_enabled: bool,
+        // [shopify] Lever for the clean-upgrade startup fast paths. Read once from
+        // `TB_DISABLE_CLEAN_UPGRADE_FAST_PATHS` at init; the static allocator forbids
+        // per-checkpoint env lookups. See `src/shopify/clean_upgrade.zig`.
+        clean_upgrade_fast_paths_enabled: bool,
 
         const OpenOptions = struct {
             node_count: u8,
@@ -820,14 +828,15 @@ pub fn ReplicaType(
                 },
             );
 
-            // [shopify] Read the WAL-skip lever once; the env var is the operator's
-            // override for known-incompatible upgrade targets (e.g. upstream). Must be
+            // [shopify] Read the clean-upgrade fast-paths lever once; the env var is the
+            // operator's override for known-incompatible upgrade targets (e.g. upstream). Must be
             // captured before the static allocator forbids further allocation.
-            self.wal_skip_on_upgrade_enabled = shopify_wal_skip.enabled_from_env(allocator);
-            if (!self.wal_skip_on_upgrade_enabled) {
-                log.info("{}: {s}=1; WAL skip on upgrade disabled", .{
+            self.clean_upgrade_fast_paths_enabled =
+                shopify_clean_upgrade.enabled_from_env(allocator);
+            if (!self.clean_upgrade_fast_paths_enabled) {
+                log.info("{}: {s}=1; clean-upgrade fast paths disabled", .{
                     self.log_prefix(),
-                    shopify_wal_skip.env_var,
+                    shopify_clean_upgrade.env_var,
                 });
             }
 
@@ -860,6 +869,12 @@ pub fn ReplicaType(
                 vsr.superblock.SuperBlockHeader.flag_clean_upgrade_next_recovery != 0;
             if (clean_upgrade_restart) {
                 self.clock.reduce_initial_synchronization_window_for_clean_upgrade();
+                // [shopify] Until the first clock sync, use the bootstrap ping timeout so
+                // post-upgrade status transitions don't re-arm the 1s steady-state cadence.
+                // Skip replica_count=1: it never installs an epoch, so we'd never restore it.
+                if (!self.clock.synchronization_disabled) {
+                    self.clock_bootstrap_ping = true;
+                }
                 log.info("{}: open: skipping WAL recovery (clean upgrade)", .{self.log_prefix()});
                 self.journal.recover_fast(journal_recover_callback);
             } else {
@@ -1075,7 +1090,7 @@ pub fn ReplicaType(
             );
             assert(!self.opened);
             assert(self.superblock.working.flags == 0);
-            log.mark.info("{}: startup recovery: cleared WAL skip flag", .{self.log_prefix()});
+            log.mark.info("{}: startup recovery: cleared clean-upgrade flag", .{self.log_prefix()});
             self.opened = true;
         }
 
@@ -1515,6 +1530,11 @@ pub fn ReplicaType(
                     .id = replica_index,
                     .after = 1_000 / constants.tick_ms,
                 },
+                .clock_bootstrap_ping_timeout = Timeout{
+                    .name = "clock_bootstrap_ping_timeout",
+                    .id = replica_index,
+                    .after = constants.clock_bootstrap_ping_interval_ticks,
+                },
                 .prepare_timeout = Timeout{
                     .name = "prepare_timeout",
                     .id = replica_index,
@@ -1614,7 +1634,7 @@ pub fn ReplicaType(
                 .aof_recovery = options.aof_recovery,
                 // [shopify] Set by `open()` after `init()` returns, while the static
                 // allocator still permits env-var reads.
-                .wal_skip_on_upgrade_enabled = undefined,
+                .clean_upgrade_fast_paths_enabled = undefined,
             };
 
             log.info("{}: init: replica_count={} quorum_view_change={} quorum_replication={} " ++
@@ -1714,6 +1734,7 @@ pub fn ReplicaType(
 
             const timeouts = .{
                 .{ &self.ping_timeout, on_ping_timeout },
+                .{ &self.clock_bootstrap_ping_timeout, on_ping_timeout },
                 .{ &self.prepare_timeout, on_prepare_timeout },
                 .{ &self.primary_abdicate_timeout, on_primary_abdicate_timeout },
                 .{ &self.commit_message_timeout, on_commit_message_timeout },
@@ -3835,8 +3856,30 @@ pub fn ReplicaType(
             self.message_bus.resume_receive();
         }
 
+        fn ping_timeout_active(self: *Replica) *Timeout {
+            if (self.clock_bootstrap_ping) {
+                assert(!self.ping_timeout.ticking);
+                return &self.clock_bootstrap_ping_timeout;
+            } else {
+                assert(!self.clock_bootstrap_ping_timeout.ticking);
+                return &self.ping_timeout;
+            }
+        }
+
+        fn ping_timeout_start(self: *Replica) void {
+            if (self.clock_bootstrap_ping) {
+                if (self.ping_timeout.ticking) self.ping_timeout.stop();
+                self.clock_bootstrap_ping_timeout.start();
+            } else {
+                if (self.clock_bootstrap_ping_timeout.ticking) {
+                    self.clock_bootstrap_ping_timeout.stop();
+                }
+                self.ping_timeout.start();
+            }
+        }
+
         fn on_ping_timeout(self: *Replica) void {
-            self.ping_timeout.reset();
+            self.ping_timeout_active().reset();
 
             const message = self.message_bus.pool.get_message(.ping);
             defer self.message_bus.unref(message);
@@ -3874,6 +3917,15 @@ pub fn ReplicaType(
 
             assert(message.header.view <= self.view);
             self.send_message_to_other_replicas_and_standbys(message.base());
+
+            // [shopify] End the clean-upgrade clock bootstrap once the first epoch synchronizes,
+            // swapping back to the steady-state ping timeout immediately rather than waiting for
+            // the next status transition.
+            if (self.clock_bootstrap_ping and self.clock.synchronized()) {
+                self.clock_bootstrap_ping = false;
+                self.clock_bootstrap_ping_timeout.stop();
+                self.ping_timeout_start();
+            }
         }
 
         fn on_prepare_timeout(self: *Replica) void {
@@ -5472,8 +5524,8 @@ pub fn ReplicaType(
             // otherwise be skipped by the new binary's header-only recovery path.
             const next_release = self.release_for_next_checkpoint().?;
             const is_upgrade = next_release.value != self.release.value;
-            const clean_upgrade_next_recovery = self.wal_skip_on_upgrade_enabled and is_upgrade and
-                self.wal_clean_for_fast_recovery();
+            const clean_upgrade_next_recovery = self.clean_upgrade_fast_paths_enabled and
+                is_upgrade and self.wal_clean_for_fast_recovery();
             const include_view_headers = !self.solo() or clean_upgrade_next_recovery;
             if (self.solo() and is_upgrade and !clean_upgrade_next_recovery) {
                 log.mark.info(
@@ -5484,7 +5536,7 @@ pub fn ReplicaType(
             }
             if (clean_upgrade_next_recovery) {
                 assert(is_upgrade);
-                assert(self.wal_skip_on_upgrade_enabled);
+                assert(self.clean_upgrade_fast_paths_enabled);
                 assert(self.journal.dirty.count == 0);
                 assert(self.journal.faulty.count == 0);
                 assert(self.journal.writes.executing() == 0);
@@ -5529,7 +5581,7 @@ pub fn ReplicaType(
                     .storage_size = storage_size,
                     .release = next_release,
                     // [shopify] Signal the new binary to take clean-upgrade startup fast paths
-                    // after exec(). Suppressed when `TB_DISABLE_SKIP_WAL_ON_UPGRADE=1`, the
+                    // after exec(). Suppressed when `TB_DISABLE_CLEAN_UPGRADE_FAST_PATHS=1`, the
                     // operator lever for upgrading to a binary that doesn't understand the flag.
                     .flags = if (clean_upgrade_next_recovery)
                         vsr.superblock.SuperBlockHeader.flag_clean_upgrade_next_recovery
@@ -10222,7 +10274,7 @@ pub fn ReplicaType(
             assert(!self.pulse_timeout.ticking);
             assert(!self.upgrade_timeout.ticking);
 
-            self.ping_timeout.start();
+            self.ping_timeout_start();
             self.grid_repair_timeout.start();
             self.grid_scrub_timeout.start();
 
@@ -10273,7 +10325,7 @@ pub fn ReplicaType(
                     },
                 );
 
-                self.ping_timeout.start();
+                self.ping_timeout_start();
                 self.exit_view_message_timeout.start();
                 self.commit_message_timeout.start();
                 self.journal_repair_timeout.start();
@@ -10295,7 +10347,7 @@ pub fn ReplicaType(
                     },
                 );
 
-                self.ping_timeout.start();
+                self.ping_timeout_start();
                 self.exit_view_message_timeout.start();
                 self.journal_repair_timeout.start();
                 self.repair_sync_timeout.start();
@@ -10350,7 +10402,7 @@ pub fn ReplicaType(
             assert(!self.pulse_timeout.ticking);
             assert(!self.upgrade_timeout.ticking);
 
-            self.ping_timeout.start();
+            self.ping_timeout_start();
             self.exit_view_message_timeout.start();
             self.journal_repair_timeout.start();
             self.repair_sync_timeout.start();
@@ -10392,7 +10444,7 @@ pub fn ReplicaType(
                 assert(self.log_view > self.log_view_durable() or
                     self.log_view == self.superblock.staging.vsr_state.log_view);
 
-                self.ping_timeout.start();
+                self.ping_timeout_start();
                 self.commit_message_timeout.start();
                 self.exit_view_window_timeout.stop();
                 self.exit_view_message_timeout.start();
@@ -10430,7 +10482,7 @@ pub fn ReplicaType(
                     self.view_durable_update();
                 }
 
-                self.ping_timeout.start();
+                self.ping_timeout_start();
                 self.commit_message_timeout.stop();
                 self.exit_view_window_timeout.stop();
                 self.exit_view_message_timeout.start();
@@ -10520,7 +10572,7 @@ pub fn ReplicaType(
                 queue.deinit(self.message_bus.pool);
             }
 
-            self.ping_timeout.start();
+            self.ping_timeout_start();
             self.commit_message_timeout.stop();
             self.exit_view_window_timeout.stop();
             self.exit_view_message_timeout.start();
@@ -11223,7 +11275,7 @@ pub fn ReplicaType(
             }
 
             log.warn(
-                "{}: commit_checkpoint_superblock: WAL skip on upgrade disabled; " ++
+                "{}: commit_checkpoint_superblock: clean-upgrade fast paths disabled; " ++
                     "dirty={} faulty={} writes_executing={}",
                 .{ self.log_prefix(), dirty_count, faulty_count, writes_executing },
             );

@@ -766,6 +766,11 @@ pub const clock_synchronization_window_min = config.process.clock_synchronizatio
 pub const clock_synchronization_window_min_clean_upgrade =
     config.process.clock_synchronization_window_min_clean_upgrade;
 
+/// [shopify] Ping interval used only while a clean-upgrade replica bootstraps its clock, so the
+/// reduced clean-upgrade window (not the 1s steady-state ping interval) gates the first epoch.
+pub const clock_bootstrap_ping_interval_ticks =
+    config.process.clock_bootstrap_ping_interval.to_ms() / tick_ms;
+
 /// The amount of time without agreement before the clock window is expired and a new window opened.
 /// This happens where some samples have been collected but not enough to reach agreement.
 /// The quality of samples degrades as they age so at some point we throw them away and start over.

@@ -378,6 +378,13 @@ pub fn realtime_synchronized(self: *Clock) ?i64 {
     }
 }
 
+/// [shopify] True once the current epoch has reached agreement. Lets the replica end its
+/// clean-upgrade clock bootstrap and return to the steady-state ping interval after the first
+/// synchronized epoch.
+pub fn synchronized(self: *const Clock) bool {
+    return self.epoch.synchronized != null;
+}
+
 pub fn round_trip_time_median_ns(self: *const Clock) ?u64 {
     // +1 to allow for the standby.
     var one_way_delays = stdx.BoundedArrayType(u64, constants.replicas_max + 1){};
