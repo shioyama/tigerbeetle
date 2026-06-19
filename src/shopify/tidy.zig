@@ -2,7 +2,8 @@
 //!
 //!   1. Every commit on the PR branch authored by `@shopify.com` must be prefixed
 //!      with `[shopify]`. Non-Shopify-authored commits (e.g. upstream commits brought
-//!      in by an `upstream-merge` PR) are exempt.
+//!      in by an `upstream-merge` PR) are exempt. Upstream import branches named
+//!      `shopify/upstream-X.Y.Z` skip PR-branch commit checks entirely.
 //!   2. `SHOPIFY-CHANGELOG.md` is well-formed — every entry sits under a section
 //!      and carries a fork-PR link.
 //!   3. If any non-test `src/` file changed in a Shopify-authored commit,
@@ -30,8 +31,9 @@
 //!      to ship server code despite the block.
 //!
 //! Checks 1, 3, 4, and 7 diff against `BUILDKITE_PULL_REQUEST_BASE_BRANCH` if set,
-//! and fall back to `main` otherwise so the checks exercise locally too. Checks 2, 5,
-//! and 6 run unconditionally.
+//! and fall back to `main` otherwise so the checks exercise locally too. Branches
+//! named `shopify/upstream-X.Y.Z` skip those checks. Checks 2, 5, and 6 run
+//! unconditionally.
 
 const std = @import("std");
 const mem = std.mem;
@@ -92,6 +94,11 @@ test "tidy shopify fork" {
     // Check 6: fork-versions.txt manifest matches git tag history.
     try validate_fork_versions_manifest(shell);
 
+    const head_branch = current_branch_name(shell);
+    if (head_branch) |name| {
+        if (is_upstream_import_branch(name)) return;
+    }
+
     const base_branch = shell.env_get_option("BUILDKITE_PULL_REQUEST_BASE_BRANCH") orelse "main";
 
     shell.exec("git fetch origin {base_branch}", .{ .base_branch = base_branch }) catch {
@@ -107,7 +114,7 @@ test "tidy shopify fork" {
     // fork cut would match the `X.Y.Z` portion of the full fork version, causing
     // a multiversion upgrade to fail. This condition is cleared on an upstream
     // merge, signaled by a new `## TigerBeetle X.Y.Z` in CHANGELOG.md.
-    const server_changes_blocked = try compute_server_changes_blocked(shell);
+    const server_changes_blocked = try compute_server_changes_blocked(shell, head_branch);
 
     // Server `@import` closure, computed from `.zig-cache/h/*.txt` manifests
     // rooted at `src/tigerbeetle/main.zig`. Lazy: only the block check uses it,
@@ -121,7 +128,9 @@ test "tidy shopify fork" {
     // src/-vs-changelog accounting, changelog entry placement, and the same-triple
     // server-touching block. Checks 1, 3, and 7 filter on author email being
     // `@shopify.com`, so an upstream-merge PR doesn't trip on upstream-authored
-    // commits brought in via the merge commit.
+    // commits brought in via the merge commit. Upstream import branches are
+    // skipped before this walk because upstream commits may now also be authored
+    // by Shopify contributors.
     {
         const shas = try shell.exec_stdout("git log --format=%H FETCH_HEAD..HEAD", .{});
         var has_bad_commits = false;
@@ -509,7 +518,43 @@ fn validate_fork_versions_manifest(shell: *stdx.Shell) !void {
 //   `main` with no fork release on top yet).
 // - Current branch starts with `release/` (release PRs intentionally cut the
 //   same-base bump).
-fn compute_server_changes_blocked(shell: *stdx.Shell) !bool {
+fn current_branch_name(shell: *stdx.Shell) ?[]const u8 {
+    if (shell.env_get_option("BUILDKITE_BRANCH")) |branch| return branch;
+
+    const out = shell.exec_stdout("git rev-parse --abbrev-ref HEAD", .{}) catch
+        return null;
+    return mem.trim(u8, out, " \r\n\t");
+}
+
+const upstream_import_branch_prefix = "shopify/upstream-";
+
+fn is_upstream_import_branch(branch: []const u8) bool {
+    const version = stdx.cut_prefix(branch, upstream_import_branch_prefix) orelse return false;
+
+    var parts = mem.splitScalar(u8, version, '.');
+    var count: u8 = 0;
+    while (parts.next()) |part| : (count += 1) {
+        if (count == 3 or part.len == 0) return false;
+        for (part) |c| {
+            if (!std.ascii.isDigit(c)) return false;
+        }
+    }
+    return count == 3;
+}
+
+test is_upstream_import_branch {
+    try std.testing.expect(is_upstream_import_branch("shopify/upstream-0.17.5"));
+    try std.testing.expect(is_upstream_import_branch("shopify/upstream-10.2.345"));
+
+    try std.testing.expect(!is_upstream_import_branch("shopify/upstream-0.17"));
+    try std.testing.expect(!is_upstream_import_branch("shopify/upstream-0.17.5.1"));
+    try std.testing.expect(!is_upstream_import_branch("shopify/upstream-0.17.x"));
+    try std.testing.expect(!is_upstream_import_branch("shopify/upstream-0..5"));
+    try std.testing.expect(!is_upstream_import_branch("shopify/feature-0.17.5"));
+    try std.testing.expect(!is_upstream_import_branch("shopify/upstream-0.17.5-fork"));
+}
+
+fn compute_server_changes_blocked(shell: *stdx.Shell, head_branch: ?[]const u8) !bool {
     const allocator = shell.arena.allocator();
 
     const shopify_text = try shell.project_root.readFileAlloc(
@@ -544,11 +589,6 @@ fn compute_server_changes_blocked(shell: *stdx.Shell) !bool {
     // Release PRs intentionally cut a same-triple bump; the changelog edit *is*
     // the bump. Detect by the branch name convention used by `shopify-release`
     // and by `.shopify-build/tigerbeetle.yml`'s "Validate release build" step.
-    const head_branch = shell.env_get_option("BUILDKITE_BRANCH") orelse blk: {
-        const out = shell.exec_stdout("git rev-parse --abbrev-ref HEAD", .{}) catch
-            break :blk null;
-        break :blk mem.trim(u8, out, " \r\n\t");
-    };
     if (head_branch) |name| {
         if (mem.startsWith(u8, name, "release/")) return false;
     }
