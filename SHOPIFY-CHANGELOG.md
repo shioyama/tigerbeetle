@@ -31,6 +31,12 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Tooling
 
+- [#187](https://github.com/shop/tigerbeetle/pull/187)
+
+  Skip PR-branch commit-history tidy checks on `shopify/upstream-X.Y.Z`
+  branches. Upstream imports can now include Shopify-authored upstream commits,
+  so branch convention is a clearer upstream boundary than author email alone.
+
 - [#173](https://github.com/shop/tigerbeetle/pull/173)
 
   Limit long-function tidy checks to fork-owned source so Shopify patches do not
