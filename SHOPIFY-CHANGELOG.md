@@ -29,6 +29,12 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   Update Shopify fork parsing helpers for upstream's `stdx.parse_int` API while
   keeping build-script-only code independent from runtime Zig modules.
 
+- [#186](https://github.com/shop/tigerbeetle/pull/186)
+
+  Restore stash_remove logic and handle tombstones that mark actual deletions
+  through a different path. Also fix rollback logic to correctly restore
+  tombstones on .discard. (upstream patch)
+
 ### Tooling
 
 - [#187](https://github.com/shop/tigerbeetle/pull/187)
