@@ -3,6 +3,15 @@
 Changes made in this fork, organized by release.
 Commit messages for Shopify patches are prefixed with `[shopify]`.
 
+## TigerBeetle (unreleased)
+
+### Fixes
+
+- [#188](https://github.com/shop/tigerbeetle/pull/188)
+
+  Revert unique keys to secondary indexes until IndexBlock binary
+  compatibility is fixed (upstream patch).
+
 ## TigerBeetle 0.17.5-shopify1
 
 Released: 2026-06-16
