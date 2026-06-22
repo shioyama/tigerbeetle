@@ -31,6 +31,12 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Tooling
 
+- [#192](https://github.com/shop/tigerbeetle/pull/192)
+
+  Prompt for explicit confirmation before creating a Shopify release branch from
+  a non-`main` HEAD, making intentional branch-based releases clear while
+  keeping the release preparation flow available outside `main`.
+
 - [#187](https://github.com/shop/tigerbeetle/pull/187)
 
   Skip PR-branch commit-history tidy checks on `shopify/upstream-X.Y.Z`

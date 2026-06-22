@@ -127,11 +127,18 @@ pub fn main(shell: *stdx.Shell, gpa: std.mem.Allocator) !void {
     const prep = try read_release_prep(shell);
     const version = prep.version;
     const shopify_text = (try prepare_shopify_text_for_release(allocator, prep)) orelse return;
+    const current_branch = std.mem.trim(
+        u8,
+        try shell.exec_stdout("git rev-parse --abbrev-ref HEAD", .{}),
+        " \r\n\t",
+    );
+    if (!std.mem.eql(u8, current_branch, "main") and
+        !try confirm_non_main_branch(allocator, current_branch)) return;
     if (!try confirm_release(allocator, version)) return;
 
     const branch = try shell.fmt("release/{s}", .{version});
     try shell.exec("git fetch origin --quiet", .{});
-    try shell.exec("git switch --create {branch} origin/main", .{ .branch = branch });
+    try shell.exec("git switch --create {branch} HEAD", .{ .branch = branch });
 
     const updated_text = try write_release_changelog(shell, shopify_text, version);
 
@@ -188,9 +195,31 @@ fn prepare_shopify_text_for_release(
     return try insert_empty_unreleased_section(allocator, prep.shopify_text);
 }
 
+fn confirm_non_main_branch(allocator: std.mem.Allocator, branch: []const u8) !bool {
+    return confirm(
+        allocator,
+        "You are on branch '{s}', not 'main'.\n" ++
+            "The release branch will be created from the current HEAD.\n" ++
+            "Release from this branch? [Y/n] ",
+        .{branch},
+    );
+}
+
 fn confirm_release(allocator: std.mem.Allocator, version: []const u8) !bool {
+    return confirm(
+        allocator,
+        "Next release version: {s}\nProceed? [Y/n] ",
+        .{version},
+    );
+}
+
+fn confirm(
+    allocator: std.mem.Allocator,
+    comptime prompt: []const u8,
+    args: anytype,
+) !bool {
     const stdout = std.io.getStdOut().writer();
-    try stdout.print("Next release version: {s}\nProceed? [Y/n] ", .{version});
+    try stdout.print(prompt, args);
     const stdin = std.io.getStdIn().reader();
     const confirmed = try shopify_stdx.read_yes(allocator, stdin);
     if (!confirmed) try stdout.print("Aborted.\n", .{});
