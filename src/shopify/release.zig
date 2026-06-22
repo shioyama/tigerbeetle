@@ -127,17 +127,27 @@ pub fn main(shell: *stdx.Shell, gpa: std.mem.Allocator) !void {
     const prep = try read_release_prep(shell);
     const version = prep.version;
     const shopify_text = (try prepare_shopify_text_for_release(allocator, prep)) orelse return;
+    try shell.exec("git fetch origin --quiet", .{});
     const current_branch = std.mem.trim(
         u8,
         try shell.exec_stdout("git rev-parse --abbrev-ref HEAD", .{}),
         " \r\n\t",
     );
-    if (!std.mem.eql(u8, current_branch, "main") and
-        !try confirm_non_main_branch(allocator, current_branch)) return;
+    const head = std.mem.trim(
+        u8,
+        try shell.exec_stdout("git rev-parse HEAD", .{}),
+        " \r\n\t",
+    );
+    const origin_main = std.mem.trim(
+        u8,
+        try shell.exec_stdout("git rev-parse origin/main", .{}),
+        " \r\n\t",
+    );
+    if ((!std.mem.eql(u8, current_branch, "main") or !std.mem.eql(u8, head, origin_main)) and
+        !try confirm_release_source(allocator, current_branch, head, origin_main)) return;
     if (!try confirm_release(allocator, version)) return;
 
     const branch = try shell.fmt("release/{s}", .{version});
-    try shell.exec("git fetch origin --quiet", .{});
     try shell.exec("git switch --create {branch} HEAD", .{ .branch = branch });
 
     const updated_text = try write_release_changelog(shell, shopify_text, version);
@@ -195,13 +205,24 @@ fn prepare_shopify_text_for_release(
     return try insert_empty_unreleased_section(allocator, prep.shopify_text);
 }
 
-fn confirm_non_main_branch(allocator: std.mem.Allocator, branch: []const u8) !bool {
+fn confirm_release_source(
+    allocator: std.mem.Allocator,
+    current_branch: []const u8,
+    head: []const u8,
+    origin_main: []const u8,
+) !bool {
+    const stdout = std.io.getStdOut().writer();
+    if (!std.mem.eql(u8, current_branch, "main")) {
+        try stdout.print("You are on branch '{s}', not 'main'.\n", .{current_branch});
+    }
+    if (!std.mem.eql(u8, head, origin_main)) {
+        try stdout.print("Current HEAD does not match origin/main.\n", .{});
+    }
     return confirm(
         allocator,
-        "You are on branch '{s}', not 'main'.\n" ++
-            "The release branch will be created from the current HEAD.\n" ++
-            "Release from this branch? [Y/n] ",
-        .{branch},
+        "The release branch will be created from the current HEAD.\n" ++
+            "Release from this HEAD? [Y/n] ",
+        .{},
     );
 }
 
