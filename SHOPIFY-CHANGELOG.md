@@ -48,6 +48,17 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   Limit long-function tidy checks to fork-owned source so Shopify patches do not
   split upstream functions solely for fork hygiene.
 
+## TigerBeetle 0.17.5-shopify2
+
+Released: 2026-06-22
+
+### Fixes
+
+- [#188](https://github.com/shop/tigerbeetle/pull/188)
+
+  Revert unique keys to secondary indexes until IndexBlock binary
+  compatibility is fixed (upstream patch).
+
 ## TigerBeetle 0.17.5-shopify1
 
 Released: 2026-06-16
