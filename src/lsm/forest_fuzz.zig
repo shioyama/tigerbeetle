@@ -35,7 +35,6 @@ const FuzzOpAction = union(enum) {
     put: tb.Transfer,
     get_by_id: UniqueKey,
     get_by_timestamp: UniqueKey,
-    get_by_pending_id: UniqueKey,
     scan: ScanParams,
 };
 const FuzzOpActionTag = std.meta.Tag(FuzzOpAction);
@@ -528,7 +527,6 @@ const Environment = struct {
                 if (switch (key) {
                     .id => |id| entry.transfer.id == id,
                     .timestamp => |timestamp| entry.transfer.timestamp == timestamp,
-                    .pending_id => |id| id != 0 and entry.transfer.pending_id == id,
                 }) {
                     return entry.transfer;
                 }
@@ -549,10 +547,6 @@ const Environment = struct {
                 try model.checkpointed.objects.put(entry.transfer.id, entry.transfer);
                 try model.checkpointed.unique_keys.put(
                     .{ .timestamp = entry.transfer.timestamp },
-                    entry.transfer.id,
-                );
-                if (entry.transfer.pending_id != 0) try model.checkpointed.unique_keys.put(
-                    .{ .pending_id = entry.transfer.pending_id },
                     entry.transfer.id,
                 );
             }
@@ -710,7 +704,6 @@ const Environment = struct {
             },
             inline .get_by_id,
             .get_by_timestamp,
-            .get_by_pending_id,
             => |key, action| {
                 // Get object from lsm.
                 try env.prefetch(key, snapshot);
@@ -725,13 +718,6 @@ const Environment = struct {
                             assert(key == .timestamp);
                             assert(TimestampRange.valid(key.timestamp));
                             break :lsm_object env.get(key);
-                        },
-                        .get_by_pending_id => {
-                            assert(key == .pending_id);
-                            break :lsm_object if (key.pending_id == 0)
-                                null
-                            else
-                                env.get(key);
                         },
                         else => comptime unreachable,
                     }
@@ -867,7 +853,6 @@ pub fn generate_fuzz_ops(
         // Maybe do some gets.
         .get_by_id = if (prng.boolean()) 0 else constants.lsm_compaction_ops,
         .get_by_timestamp = if (prng.boolean()) 0 else constants.lsm_compaction_ops,
-        .get_by_pending_id = if (prng.boolean()) 0 else constants.lsm_compaction_ops,
         // Maybe do some scans.
         .scan = if (prng.boolean()) 0 else constants.lsm_compaction_ops,
     };
@@ -926,25 +911,6 @@ pub fn generate_fuzz_ops(
                     TimestampRange.timestamp_min,
                     fuzz_op_index + 1,
                 ) },
-            },
-            .get_by_pending_id => FuzzOpAction{
-                .get_by_pending_id = .{
-                    .pending_id = id: {
-                        // Not all transfers have the pending_id,
-                        // so it may or may not be found.
-                        const it = id_to_object.keyIterator();
-                        for (0..it.len) |_| {
-                            const index = prng.int_inclusive(usize, it.len - 1);
-                            if (!it.metadata[index].isUsed()) continue;
-
-                            const id = it.items[index];
-                            const object = id_to_object.get(id).?;
-                            break :id object.pending_id;
-                        }
-
-                        break :id 0;
-                    },
-                },
             },
             .scan => blk: {
                 @setEvalBranchQuota(10_000);
@@ -1022,7 +988,6 @@ pub fn generate_fuzz_ops(
             .put => puts_since_compact += 1,
             .get_by_id => {},
             .get_by_timestamp => {},
-            .get_by_pending_id => {},
             .scan => {},
         }
     }
