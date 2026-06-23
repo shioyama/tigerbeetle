@@ -83,7 +83,7 @@ We maintain a separate, fork-only changelog, `SHOPIFY-CHANGELOG.md`, which mirro
 2. **Changelog updated.** If a Shopify-authored commit touches a non-test `src/` file, `SHOPIFY-CHANGELOG.md` must be updated in the same PR. A `skip-changelog-check` marker in a commit message exempts that commit only.
 3. **Well-formed changelog.** Enforces `SHOPIFY-CHANGELOG.md` format described in the previous section.
 4. **snake_case in `src/shopify/`.** Match TigerBeetle's convention, not Zig stdlib's camelCase. PascalCase type-returning functions are allowed.
-5. **`fork-versions.txt` in sync.** The manifest lists the latest `-shopifyN` per `X.Y.Z` base reachable from `HEAD^`, newest first, capped at four entries. CI uses it to stage fork binaries for vortex's multi-version slots.
+5. **`fork-versions.txt` in sync.** The manifest lists the latest `-shopifyN` per `X.Y.Z` base across all fetched tags, newest first, capped at four entries. CI uses it to stage fork binaries for vortex's multi-version slots, including branch-only hotfix releases whose tagged commit is not reachable from main.
 
 ## Versioning and releases
 

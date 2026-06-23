@@ -17,7 +17,7 @@
 //!   5. Functions in `src/shopify/` use snake_case, matching TigerBeetle's convention
 //!      (not Zig stdlib's camelCase). PascalCase type-returning functions are allowed.
 //!   6. `.shopify-build/fork-versions.txt` lists the latest `-shopifyN` per
-//!      `X.Y.Z` patch line reachable from `HEAD^`, newest first, capped at four
+//!      `X.Y.Z` patch line across all fetched tags, newest first, capped at four
 //!      patch lines. Dedup by base avoids burning a vortex slot on a same-base
 //!      bump that shares a wire version with its sibling; keeping the highest
 //!      `N` means any hotfix code that landed on `-shopifyN>1` is the binary
@@ -449,16 +449,16 @@ fn validate_snake_case_functions(shell: *stdx.Shell) !void {
 const fork_versions_max = 4;
 const fork_versions_manifest = ".shopify-build/fork-versions.txt";
 
-// The manifest must equal the latest `-shopifyN` per `X.Y.Z` base reachable
-// from `HEAD^`, newest first, capped at `fork_versions_max` patch lines. Keeps
-// `.fork-bins/` in sync with what `release_history()` will iterate. Once
-// enough fork tags exist to fill every slot, `.shopify-build/fetch-upstream-tags.sh`
-// becomes redundant and can be retired.
+// The manifest must equal the latest `-shopifyN` per `X.Y.Z` base across all
+// fetched tags, newest first, capped at `fork_versions_max` patch lines. Tags
+// are intentionally not restricted to ancestors of HEAD: a same-base hotfix can
+// be released from a branch whose release commit never lands on main, while the
+// resulting binary is still the newest prior fork build CI must stage.
 fn validate_fork_versions_manifest(shell: *stdx.Shell) !void {
     const allocator = shell.arena.allocator();
 
     const tags_output = shell.exec_stdout(
-        "git tag --merged HEAD^ --sort=-committerdate",
+        "git tag --sort=-committerdate",
         .{},
     ) catch {
         print_diagnostic(
@@ -498,8 +498,8 @@ fn validate_fork_versions_manifest(shell: *stdx.Shell) !void {
     if (!mem.eql(u8, manifest, expected.items)) {
         print_diagnostic(
             "{s}: error: out of sync with git tags\n" ++
-                "expected (latest -shopifyN per X.Y.Z base reachable from " ++
-                "HEAD^, newest first, capped at {d} patch lines):\n" ++
+                "expected (latest -shopifyN per X.Y.Z base across all " ++
+                "fetched tags, newest first, capped at {d} patch lines):\n" ++
                 "{s}" ++
                 "got:\n" ++
                 "{s}",

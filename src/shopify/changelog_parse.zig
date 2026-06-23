@@ -35,9 +35,10 @@ pub fn extract_shopify_latest_released_version(text: []const u8) ?[]const u8 {
     return null;
 }
 
-/// Returns the most recent prior fork release whose upstream triple differs
-/// from the top entry's. Same-triple entries are skipped because the
-/// multiversion loader would see two builds with the same version number.
+/// Returns the newest prior fork release whose upstream triple is lower than
+/// the top entry's. Same-triple entries are skipped because the multiversion
+/// loader would see two builds with the same version number. Higher triples are
+/// skipped so backport releases can coexist with newer entries in the changelog.
 /// `error.NoPreviousRelease` means the caller should fall back to
 /// `CHANGELOG.md`'s upstream-derived previous.
 pub fn extract_shopify_previous_version(text: []const u8) error{
@@ -46,7 +47,9 @@ pub fn extract_shopify_previous_version(text: []const u8) error{
     NoPreviousRelease,
 }![]const u8 {
     var lines = std.mem.splitScalar(u8, text, '\n');
-    var current_triple: ?[]const u8 = null;
+    var current: ?ForkVersion = null;
+    var best: ?ForkVersion = null;
+    var best_version: ?[]const u8 = null;
     while (lines.next()) |line| {
         if (!std.mem.startsWith(u8, line, "## ")) continue;
         if (std.mem.indexOf(u8, line, "unreleased") != null) {
@@ -54,16 +57,70 @@ pub fn extract_shopify_previous_version(text: []const u8) error{
         }
         if (!std.mem.startsWith(u8, line, "## TigerBeetle ")) continue;
         const version = line["## TigerBeetle ".len..];
-        const dash_idx = std.mem.indexOf(u8, version, "-shopify") orelse continue;
-        const triple = version[0..dash_idx];
-        if (current_triple) |cur| {
-            if (!std.mem.eql(u8, cur, triple)) return version;
+        const parsed = parse_fork_version(version) orelse continue;
+        if (current) |cur| {
+            if (!triple_less_than(parsed.triple, cur.triple)) continue;
+            if (best == null or best.?.ord < parsed.ord) {
+                best = parsed;
+                best_version = version;
+            }
         } else {
-            current_triple = triple;
+            current = parsed;
         }
     }
-    if (current_triple == null) return error.MissingChangelogEntry;
-    return error.NoPreviousRelease;
+    if (current == null) return error.MissingChangelogEntry;
+    return best_version orelse error.NoPreviousRelease;
+}
+
+const ForkVersion = struct {
+    triple: [3]u32,
+    ord: u64,
+};
+
+/// Parses "X.Y.Z-shopifyN" into a comparable u64.
+pub fn parse_shopify_version(version: []const u8) ?u64 {
+    const parsed = parse_fork_version(version) orelse return null;
+    return parsed.ord;
+}
+
+fn parse_fork_version(version: []const u8) ?ForkVersion {
+    const dash_idx = std.mem.indexOf(u8, version, "-shopify") orelse return null;
+    const n = parse_decimal(u16, version[dash_idx + "-shopify".len ..]) orelse
+        return null;
+
+    var triple: [3]u32 = undefined;
+    var parts = std.mem.splitScalar(u8, version[0..dash_idx], '.');
+    for (&triple) |*part_out| {
+        const part = parts.next() orelse return null;
+        part_out.* = parse_decimal(u32, part) orelse return null;
+    }
+    if (parts.next() != null) return null;
+
+    return .{
+        .triple = triple,
+        .ord = @as(u64, triple[0]) << 32 |
+            @as(u64, triple[1]) << 24 |
+            @as(u64, triple[2]) << 16 |
+            @as(u64, n),
+    };
+}
+
+fn parse_decimal(comptime Int: type, text: []const u8) ?Int {
+    if (text.len == 0) return null;
+    var value: Int = 0;
+    for (text) |c| {
+        if (c < '0' or c > '9') return null;
+        value = std.math.mul(Int, value, 10) catch return null;
+        value = std.math.add(Int, value, @intCast(c - '0')) catch return null;
+    }
+    return value;
+}
+
+fn triple_less_than(a: [3]u32, b: [3]u32) bool {
+    for (a, b) |a_part, b_part| {
+        if (a_part != b_part) return a_part < b_part;
+    }
+    return false;
 }
 
 /// Returns the fork suffix for embedding in `constants.semver.pre`:
@@ -167,7 +224,36 @@ test "extract_shopify_previous_version" {
         ),
     );
 
+    // Backport release: newer changelog entries must not be selected as the
+    // multiversion target, even if they appear before the true prior base.
+    try std.testing.expectEqualStrings(
+        "0.17.3-shopify2",
+        try extract_shopify_previous_version(
+            \\## TigerBeetle 0.17.4-shopify2
+            \\
+            \\## TigerBeetle 0.17.6-shopify1
+            \\
+            \\## TigerBeetle 0.17.5-shopify2
+            \\
+            \\## TigerBeetle 0.17.4-shopify1
+            \\
+            \\## TigerBeetle 0.17.3-shopify2
+            \\
+            \\## TigerBeetle 0.17.3-shopify1
+        ),
+    );
+
     try std.testing.expectError(error.MissingChangelogEntry, extract_shopify_previous_version(""));
+}
+
+test parse_shopify_version {
+    try std.testing.expectEqual(
+        @as(u64, 0x0000_0000_1104_0002),
+        parse_shopify_version("0.17.4-shopify2").?,
+    );
+    try std.testing.expect(parse_shopify_version("0.17.4") == null);
+    try std.testing.expect(parse_shopify_version("0.17.4-shopify") == null);
+    try std.testing.expect(parse_shopify_version("0.17.4-shopify2-rc1") == null);
 }
 
 test "extract_fork_version" {

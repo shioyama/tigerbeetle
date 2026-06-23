@@ -10,9 +10,9 @@ const log = std.log;
 const stdx = @import("stdx");
 
 const ChangelogIterator = @import("../scripts/changelog.zig").ChangelogIterator;
-const ReleaseTriple = @import("../multiversion.zig").ReleaseTriple;
 const changelog_parse = @import("./changelog_parse.zig");
 const extract_shopify_latest_version = changelog_parse.extract_shopify_latest_version;
+pub const parse_shopify_version = changelog_parse.parse_shopify_version;
 
 const changelog_bytes_max = 10 * stdx.MiB;
 
@@ -42,10 +42,11 @@ pub fn shopify_latest_version(shell: *stdx.Shell) ![]const u8 {
     };
 }
 
-// Return the fork release immediately preceding the one being cut (the second
-// `## TigerBeetle ...` header in SHOPIFY-CHANGELOG.md). Returns `null` when no
-// prior fork release exists, so the caller can fall back to the
-// upstream-derived previous (first fork release on a new upstream base).
+// Return the newest fork release whose base is lower than the one being cut.
+// Same-base releases share a wire version and newer bases can appear before a
+// backport entry, so this is a numeric search rather than a header-position
+// lookup. Returns `null` when no prior fork release exists, so the caller can
+// fall back to the upstream-derived previous (first fork release on a new base).
 pub fn shopify_previous_version(shell: *stdx.Shell) !?[]const u8 {
     const allocator = shell.arena.allocator();
     const text = try shell.project_root.readFileAlloc(
@@ -272,19 +273,6 @@ fn check_shopify_entries(text: []const u8) error{
             return error.EntryDescriptionNotIndented;
         }
     }
-}
-
-// Parses "X.Y.Z-shopifyN" into a comparable u64.
-pub fn parse_shopify_version(version: []const u8) ?u64 {
-    const base, const suffix = stdx.cut(version, "-shopify") orelse
-        return null;
-    const triple = ReleaseTriple.parse(base) catch return null;
-    const n = stdx.parse_int(u16, suffix, .{}) catch
-        return null;
-    return @as(u64, triple.major) << 32 |
-        @as(u64, triple.minor) << 24 |
-        @as(u64, triple.patch) << 16 |
-        @as(u64, n);
 }
 
 // Check that a release version's base matches the upstream CHANGELOG version.
