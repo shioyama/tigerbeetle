@@ -44,6 +44,15 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Tooling
 
+- [#195](https://github.com/shop/tigerbeetle/pull/195)
+
+  Treat `.shopify-build/fork-versions.txt` as the fork-release source for CI
+  binaries and validate it against all fetched fork tags rather than only tags
+  reachable from `HEAD`. This keeps branch-only same-base hotfix releases, such
+  as `0.17.5-shopify2`, available for multiversion and vortex upgrade tests.
+  Release builds now choose the newest lower fork base as their multiversion
+  target, so backports do not accidentally try to bundle newer fork releases.
+
 - [#192](https://github.com/shop/tigerbeetle/pull/192)
 
   Prompt for explicit confirmation before creating a Shopify release branch from

@@ -43,11 +43,11 @@ jobs:
             echo "PR already open for $branch"
             exit 0
           fi
-          expected=$(git tag --merged HEAD --sort=-committerdate \
+          expected=$(git tag --sort=-committerdate \
             | grep -E -- '-shopify[0-9]+$' \
             | awk -F'-shopify' '!seen[$1]++' \
             | head -n 4)
-          [ -n "$expected" ] || { echo "no fork tags reachable from HEAD" >&2; exit 1; }
+          [ -n "$expected" ] || { echo "no fork tags found" >&2; exit 1; }
           if [ "$expected" = "$(cat .shopify-build/fork-versions.txt)" ]; then
             echo "fork-versions.txt already up to date"
             exit 0
@@ -61,5 +61,5 @@ jobs:
           git push -u origin "$branch"
           gh pr create \
             --title "Bump fork-versions.txt for $version" \
-            --body "Auto-generated after the \`$version\` tag was pushed. Merging keeps \`.shopify-build/fork-versions.txt\` in sync with the latest \`-shopifyN\` per \`X.Y.Z\` base reachable from \`main\` (capped at four patch lines), which \`fetch-fork-binaries.sh\` reads to stage fork binaries for vortex's multi-version slots. Verify the \`$version\` \`.deb\` is published to Cloudsmith before merging." \
+            --body "Auto-generated after the \`$version\` tag was pushed. Merging keeps \`.shopify-build/fork-versions.txt\` in sync with the latest \`-shopifyN\` per \`X.Y.Z\` base across all fetched tags (capped at four patch lines), which \`fetch-fork-binaries.sh\` reads to stage fork binaries for vortex's multi-version slots. Verify the \`$version\` \`.deb\` is published to Cloudsmith before merging." \
             --base main

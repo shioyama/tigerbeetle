@@ -1642,8 +1642,35 @@ fn release_history(b: *std.Build) std.mem.SplitIterator(u8, .scalar) {
     // snapshot, etc.) are dropped outright.
     // fetch_release() reads fork binaries from .fork-bins/ (populated in CI by
     // .shopify-build/fetch-fork-binaries.sh); upstream tags continue to download
-    // from upstream's GitHub releases page.
-    return std.mem.splitScalar(u8, shopify_filter_fork_tags(b, tags_string), '\n');
+    // from upstream's GitHub releases page. The manifest is prepended because a
+    // fork hotfix can be released from a branch whose tag is not reachable from
+    // HEAD, while CI still needs to test upgrades from that binary.
+    const shopify_tags_string = b.fmt(
+        "{s}\n{s}",
+        .{ shopify_fork_versions_manifest_tags(b), tags_string },
+    );
+    return std.mem.splitScalar(u8, shopify_filter_fork_tags(b, shopify_tags_string), '\n');
+}
+
+// [shopify] Returns canonical fork tags from `.shopify-build/fork-versions.txt`.
+// `tidy shopify fork` validates the manifest; build.zig keeps this permissive so
+// local upstream-only builds don't fail before tidy has produced a diagnostic.
+fn shopify_fork_versions_manifest_tags(b: *std.Build) []const u8 {
+    const manifest = b.build_root.handle.readFileAlloc(
+        b.allocator,
+        ".shopify-build/fork-versions.txt",
+        4096,
+    ) catch return "";
+
+    var tags: std.ArrayListUnmanaged(u8) = .empty;
+    var lines = std.mem.splitScalar(u8, manifest, '\n');
+    while (lines.next()) |line_raw| {
+        const line = std.mem.trim(u8, line_raw, " \t\r");
+        if (shopify_build_modules.parse_fork_release_tag(line) == null) continue;
+        tags.appendSlice(b.allocator, line) catch @panic("OOM");
+        tags.append(b.allocator, '\n') catch @panic("OOM");
+    }
+    return tags.items;
 }
 
 // [shopify] Tag filter for release_history(). Upstream `X.Y.Z` passes through;
@@ -1655,6 +1682,7 @@ fn shopify_filter_fork_tags(b: *std.Build, tags_string: []const u8) []const u8 {
     var seen_bases: std.StringArrayHashMapUnmanaged(void) = .empty;
     var it = std.mem.splitScalar(u8, tags_string, '\n');
     while (it.next()) |tag| {
+        if (tag.len == 0) continue;
         if (std.mem.indexOf(u8, tag, "-shopify") != null) {
             const parsed = shopify_build_modules.parse_fork_release_tag(tag) orelse continue;
             const gop = seen_bases.getOrPut(b.allocator, parsed.base) catch @panic("OOM");
