@@ -1,0 +1,105 @@
+name: Mirror TigerBeetle issue 2231 comments
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  SOURCE_REPO: tigerbeetle/tigerbeetle
+  SOURCE_ISSUE: "2231"
+  TARGET_REPO: shop/tigerbeetle
+  TARGET_ASSIGNEES: shioyama,zaiyiguo
+  MARKER_PREFIX: upstream-tigerbeetle-2231-comment-id
+  MIRROR_COMMENTS_CREATED_AT_OR_AFTER: "2026-06-19T18:07:20Z"
+  TRUSTED_UPSTREAM_ASSOCIATIONS: "COLLABORATOR MEMBER OWNER"
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-tigerbeetle-issue-2231-comments
+  cancel-in-progress: false
+
+jobs:
+  mirror-comments:
+    runs-on: shopify-ubuntu-latest
+    steps:
+      - name: Mirror comments as fork issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          gh api --method GET --paginate "repos/${SOURCE_REPO}/issues/${SOURCE_ISSUE}/comments?per_page=100" \
+            --jq '.[]' > comments.jsonl
+
+          jq --compact-output \
+            --arg cutoff "$MIRROR_COMMENTS_CREATED_AT_OR_AFTER" \
+            --arg trusted_associations "$TRUSTED_UPSTREAM_ASSOCIATIONS" \
+            'select(.created_at >= $cutoff)
+              | select(
+                  .author_association as $author_association |
+                  (($trusted_associations | split(" ")) | index($author_association)) != null
+                )' \
+            comments.jsonl > comments-to-mirror.jsonl
+
+          gh api --method GET --paginate "repos/${TARGET_REPO}/issues?state=all&per_page=100" \
+            --jq '.[]' > target-issues.jsonl
+          jq --raw-output \
+            --arg marker_prefix "$MARKER_PREFIX" \
+            '(.body // "")
+              | split("\n")[0]
+              | capture("^<!-- " + $marker_prefix + ":(?<id>[0-9]+) -->$")?
+              | .id' \
+            target-issues.jsonl > existing-comment-ids.txt
+
+          while IFS= read -r comment; do
+            comment_id=$(jq --raw-output '.id' <<< "$comment")
+            author=$(jq --raw-output '.user.login' <<< "$comment")
+            created_at=$(jq --raw-output '.created_at' <<< "$comment")
+            updated_at=$(jq --raw-output '.updated_at' <<< "$comment")
+            html_url=$(jq --raw-output '.html_url' <<< "$comment")
+            marker="${MARKER_PREFIX}:${comment_id}"
+
+            if grep --fixed-strings --line-regexp --quiet "$comment_id" existing-comment-ids.txt; then
+              echo "Issue already exists for upstream comment ${comment_id}"
+              continue
+            fi
+
+            title_suffix=$(jq --raw-output '
+              .body
+              | split("\n")
+              | map(gsub("^\\s+|\\s+$"; ""))
+              | map(select(length > 0))
+              | .[0] // ""
+              | select(test("^#+\\s+"))
+              | sub("^#+\\s*"; "")
+              | gsub("\\[(?<text>[^\\]]+)\\]\\([^)]*\\)"; "\(.text)")
+              | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+([-+][A-Za-z0-9.-]+)?$"))
+            ' <<< "$comment")
+            if [ -n "$title_suffix" ]; then
+              title="TigerBeetle Breaking API Change: ${title_suffix}"
+            else
+              title="TigerBeetle Breaking API Change: new comment by @${author}"
+            fi
+
+            body_file="comment-${comment_id}.md"
+            {
+              printf '<!-- %s -->\n\n' "$marker"
+              printf 'Mirrored from %s\n\n' "$html_url"
+              printf 'Author: @%s\n' "$author"
+              printf 'Created: `%s`\n' "$created_at"
+              printf 'Updated: `%s`\n\n' "$updated_at"
+              printf '%s\n\n' '---'
+              jq --raw-output '.body' <<< "$comment"
+            } > "$body_file"
+
+            gh issue create \
+              --repo "$TARGET_REPO" \
+              --title "$title" \
+              --body-file "$body_file" \
+              --assignee "$TARGET_ASSIGNEES"
+            printf '%s\n' "$comment_id" >> existing-comment-ids.txt
+          done < comments-to-mirror.jsonl
