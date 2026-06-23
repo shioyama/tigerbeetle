@@ -53,6 +53,12 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
   Release builds now choose the newest lower fork base as their multiversion
   target, so backports do not accidentally try to bundle newer fork releases.
 
+- [#197](https://github.com/shop/tigerbeetle/pull/197)
+
+  Mirror trusted upstream TigerBeetle breaking API change announcements from
+  `tigerbeetle/tigerbeetle#2231` into labeled, assigned issues in the Shopify
+  fork so fork maintainers can track required follow-up work.
+
 - [#192](https://github.com/shop/tigerbeetle/pull/192)
 
   Prompt for explicit confirmation before creating a Shopify release branch from
