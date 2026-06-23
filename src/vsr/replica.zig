@@ -895,6 +895,8 @@ pub fn ReplicaType(
                 );
                 while (!self.opened) self.superblock.storage.run();
                 assert(self.superblock.working.flags == 0);
+
+                self.trace_clean_upgrade_restart_duration(); // [shopify]
             }
 
             // Abort if all slots are faulty, since something is very wrong.
@@ -11258,6 +11260,16 @@ pub fn ReplicaType(
             // - For testing/cluster.zig: `self` is no longer valid – the replica has been
             //   deinitialized and re-opened on the new version.
             // - For tigerbeetle/main.zig: This is unreachable (release_execute() will not return).
+        }
+
+        // [shopify]
+        fn trace_clean_upgrade_restart_duration(self: *Replica) void {
+            const release_triple = self.release.triple();
+            self.trace.timing(.{ .upgrade_restart = .{
+                .to_major = release_triple.major,
+                .to_minor = release_triple.minor,
+                .to_patch = release_triple.patch,
+            } }, Instant.elapsed(self.trace.time_start, self.clock.monotonic()));
         }
 
         // [shopify]

@@ -7,6 +7,13 @@ Commit messages for Shopify patches are prefixed with `[shopify]`.
 
 ### Patches
 
+- [#180](https://github.com/shop/tigerbeetle/pull/180)
+
+  Emit a post-exec clean-upgrade startup timing metric tagged with the target
+  release's semver components, allowing notify-only Observe alerts to report
+  production TigerBeetle upgrade completion without relying on packed release
+  values.
+
 - [#173](https://github.com/shop/tigerbeetle/pull/173)
 
   Shorten the initial clock synchronization window after clean upgrade restarts
