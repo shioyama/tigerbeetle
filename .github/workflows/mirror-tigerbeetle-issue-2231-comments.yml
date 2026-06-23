@@ -9,6 +9,7 @@ env:
   SOURCE_ISSUE: "2231"
   TARGET_REPO: shop/tigerbeetle
   TARGET_ASSIGNEES: shioyama,zaiyiguo
+  TARGET_LABEL: Upstream Breaking API Changes
   MARKER_PREFIX: upstream-tigerbeetle-2231-comment-id
   MIRROR_COMMENTS_CREATED_AT_OR_AFTER: "2026-06-19T18:07:20Z"
   TRUSTED_UPSTREAM_ASSOCIATIONS: "COLLABORATOR MEMBER OWNER"
@@ -100,6 +101,7 @@ jobs:
               --repo "$TARGET_REPO" \
               --title "$title" \
               --body-file "$body_file" \
-              --assignee "$TARGET_ASSIGNEES"
+              --assignee "$TARGET_ASSIGNEES" \
+              --label "$TARGET_LABEL"
             printf '%s\n' "$comment_id" >> existing-comment-ids.txt
           done < comments-to-mirror.jsonl
