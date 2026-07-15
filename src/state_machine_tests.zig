@@ -2045,6 +2045,135 @@ test "imported events: timestamp" {
     );
 }
 
+test "imported events: expiration timestamp cannot be reused" {
+    const allocator = testing.allocator;
+
+    var context: TestContext = undefined;
+    try context.init(allocator);
+    defer context.deinit(allocator);
+
+    var input: [constants.message_body_size_max]u8 align(constants.cache_line_size) = undefined;
+    var output: [constants.message_body_size_max]u8 align(constants.cache_line_size) = undefined;
+
+    const accounts = [_]Account{
+        TestCreateAccount.event(.{
+            .id = 1,
+            .ledger = 1,
+            .code = 1,
+            .flags_history = .HIST,
+            .status = .created,
+        }),
+        TestCreateAccount.event(.{
+            .id = 2,
+            .ledger = 1,
+            .code = 1,
+            .flags_history = .HIST,
+            .status = .created,
+        }),
+        TestCreateAccount.event(.{
+            .id = 3,
+            .ledger = 1,
+            .code = 1,
+            .flags_history = .HIST,
+            .status = .created,
+        }),
+        TestCreateAccount.event(.{
+            .id = 4,
+            .ledger = 1,
+            .code = 1,
+            .flags_history = .HIST,
+            .status = .created,
+        }),
+    };
+    const accounts_bytes = mem.sliceAsBytes(accounts[0..]);
+    stdx.copy_disjoint(.exact, u8, input[0..accounts_bytes.len], accounts_bytes);
+    const account_results = stdx.bytes_as_slice(
+        .exact,
+        CreateAccountResult,
+        context.submit(.create_accounts, &input, @intCast(accounts_bytes.len), &output),
+    );
+    for (account_results) |result| try testing.expectEqual(.created, result.status);
+
+    const pending = TestCreateTransfer.event(.{
+        .id = 1,
+        .debit_account_id = 1,
+        .credit_account_id = 2,
+        .timeout = 1,
+        .ledger = 1,
+        .code = 1,
+        .flags_pending = .PEN,
+        .status = .created,
+    });
+    stdx.copy_disjoint(
+        .exact,
+        u8,
+        input[0..@sizeOf(Transfer)],
+        mem.asBytes(&pending),
+    );
+    const pending_results = stdx.bytes_as_slice(
+        .exact,
+        CreateTransferResult,
+        context.submit(.create_transfers, &input, @sizeOf(Transfer), &output),
+    );
+    try testing.expectEqual(@as(usize, 1), pending_results.len);
+    try testing.expectEqual(.created, pending_results[0].status);
+
+    context.state_machine.prepare_timestamp += std.time.ns_per_s;
+    context.pulse();
+    const expiration_timestamp = context.state_machine.commit_timestamp;
+    try testing.expect(expiration_timestamp > pending_results[0].timestamp);
+
+    const imported = TestCreateTransfer.event(.{
+        .id = 2,
+        .debit_account_id = 3,
+        .credit_account_id = 4,
+        .ledger = 1,
+        .code = 1,
+        .flags_imported = .IMP,
+        .timestamp = expiration_timestamp,
+        .status = .imported_event_timestamp_must_not_regress,
+    });
+    stdx.copy_disjoint(
+        .exact,
+        u8,
+        input[0..@sizeOf(Transfer)],
+        mem.asBytes(&imported),
+    );
+    const imported_results = stdx.bytes_as_slice(
+        .exact,
+        CreateTransferResult,
+        context.submit(.create_transfers, &input, @sizeOf(Transfer), &output),
+    );
+    try testing.expectEqual(@as(usize, 1), imported_results.len);
+    const imported_status = imported_results[0].status;
+
+    const filter = ChangeEventsFilter{
+        .timestamp_min = 0,
+        .timestamp_max = 0,
+        .limit = 10,
+    };
+    stdx.copy_disjoint(
+        .exact,
+        u8,
+        input[0..@sizeOf(ChangeEventsFilter)],
+        mem.asBytes(&filter),
+    );
+    const change_events = stdx.bytes_as_slice(
+        .exact,
+        ChangeEvent,
+        context.submit(.get_change_events, &input, @sizeOf(ChangeEventsFilter), &output),
+    );
+
+    try testing.expectEqual(@as(usize, 2), change_events.len);
+    try testing.expectEqual(ChangeEventType.two_phase_pending, change_events[0].type);
+    try testing.expectEqual(ChangeEventType.two_phase_expired, change_events[1].type);
+    try testing.expectEqual(expiration_timestamp, change_events[1].timestamp);
+    try testing.expectEqual(
+        CreateTransferStatus.imported_event_timestamp_must_not_regress,
+        imported_status,
+    );
+}
+
 test "imported events: pending transfers" {
     try check(
         \\ tick 10 nanoseconds
